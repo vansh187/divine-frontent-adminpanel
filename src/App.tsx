@@ -1,9 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AdminLayout } from "./components/layout/AdminLayout";
+import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { LoginPage } from "./features/auth/LoginPage";
 import { SignupPage } from "./features/auth/SignupPage";
 import { ForgotPasswordPage } from "./features/auth/ForgotPasswordPage";
-import { ResetPasswordPage } from "./features/auth/ResetPasswordPage";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { CustomersListPage } from "./features/customers/CustomersListPage";
 import { CustomerDetailPage } from "./features/customers/CustomerDetailPage";
@@ -28,9 +28,15 @@ function App() {
       <Route path="/admin/login" element={<LoginPage />} />
       <Route path="/admin/signup" element={<SignupPage />} />
       <Route path="/admin/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
 
-      <Route path="/admin" element={<AdminLayout />}>
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<DashboardPage />} />
         <Route path="customers" element={<CustomersListPage />} />
         <Route path="customers/:id" element={<CustomerDetailPage />} />

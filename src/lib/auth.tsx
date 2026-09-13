@@ -1,5 +1,13 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import * as api from "./api";
+import {
+  getProfileOverrides,
+  getStoredAvatar,
+  removeStoredAvatar,
+  setProfileOverrides,
+  setStoredAvatar,
+  type ProfileOverrides,
+} from "./profileStorage";
 
 const ACCESS_TOKEN_KEY = "dvi_access_token";
 const REFRESH_TOKEN_KEY = "dvi_refresh_token";
@@ -17,6 +25,11 @@ function parseJwt(token: string): Record<string, unknown> | null {
 interface AuthAdmin {
   email: string;
   fullName?: string;
+  employeeId?: string;
+  phone?: string;
+  designation?: string;
+  department?: string;
+  avatarUrl: string | null;
 }
 
 interface AuthContextValue {
@@ -31,6 +44,9 @@ interface AuthContextValue {
     password: string;
   }) => Promise<api.AdminUser>;
   logout: () => void;
+  updateProfile: (patch: ProfileOverrides) => void;
+  updateAvatar: (dataUrl: string) => void;
+  removeAvatar: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -40,14 +56,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.getItem(ACCESS_TOKEN_KEY)
   );
   const [email, setEmail] = useState<string | null>(() => localStorage.getItem(EMAIL_KEY));
+  const [profileVersion, setProfileVersion] = useState(0);
 
   const admin = useMemo<AuthAdmin | null>(() => {
     if (!accessToken || !email) return null;
     const claims = parseJwt(accessToken);
+    const overrides = getProfileOverrides(email);
     const fullName =
-      (claims?.full_name as string | undefined) ?? (claims?.name as string | undefined);
-    return { email, fullName };
-  }, [accessToken, email]);
+      overrides.fullName ??
+      (claims?.full_name as string | undefined) ??
+      (claims?.name as string | undefined);
+    const employeeId = claims?.employee_id as string | undefined;
+    return {
+      email,
+      fullName,
+      employeeId,
+      phone: overrides.phone,
+      designation: overrides.designation,
+      department: overrides.department,
+      avatarUrl: getStoredAvatar(email),
+    };
+    // profileVersion bumps force this memo to re-read localStorage after edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, email, profileVersion]);
 
   const login = useCallback(async (loginEmail: string, password: string) => {
     const tokens = await api.login({ email: loginEmail, password });
@@ -72,9 +103,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEmail(null);
   }, []);
 
+  const updateProfile = useCallback(
+    (patch: ProfileOverrides) => {
+      if (!email) return;
+      setProfileOverrides(email, patch);
+      setProfileVersion((v) => v + 1);
+    },
+    [email]
+  );
+
+  const updateAvatar = useCallback(
+    (dataUrl: string) => {
+      if (!email) return;
+      setStoredAvatar(email, dataUrl);
+      setProfileVersion((v) => v + 1);
+    },
+    [email]
+  );
+
+  const removeAvatar = useCallback(() => {
+    if (!email) return;
+    removeStoredAvatar(email);
+    setProfileVersion((v) => v + 1);
+  }, [email]);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ admin, accessToken, isAuthenticated: !!accessToken, login, signup, logout }),
-    [admin, accessToken, login, signup, logout]
+    () => ({
+      admin,
+      accessToken,
+      isAuthenticated: !!accessToken,
+      login,
+      signup,
+      logout,
+      updateProfile,
+      updateAvatar,
+      removeAvatar,
+    }),
+    [admin, accessToken, login, signup, logout, updateProfile, updateAvatar, removeAvatar]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

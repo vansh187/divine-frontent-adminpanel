@@ -1,5 +1,6 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import clsx from "clsx";
+import { useAuth } from "../../lib/auth";
 import {
   IconAudit,
   IconBookings,
@@ -11,6 +12,7 @@ import {
   IconRefunds,
   IconRevenue,
   IconSettlements,
+  IconUser,
   IconVisits,
 } from "./icons";
 
@@ -24,9 +26,19 @@ const NAV_ITEMS = [
   { to: "/admin/revenue", label: "Revenue", icon: IconRevenue },
   { to: "/admin/broker-settlements", label: "Channel Partner Settlements", icon: IconSettlements },
   { to: "/admin/audit", label: "Audit Logs", icon: IconAudit },
+  { to: "/admin/profile", label: "My Profile", icon: IconUser },
 ];
 
 export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () => void }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    onNavigate?.();
+    navigate("/admin/login");
+  }
+
   return (
     <aside
       className={clsx(
@@ -77,13 +89,14 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () =
           <IconHelp className="h-[18px] w-[18px]" />
           Help &amp; Support
         </NavLink>
-        <NavLink
-          to="/admin/login"
-          className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/70 hover:bg-sidebar-hover hover:text-white"
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-white/70 hover:bg-sidebar-hover hover:text-white"
         >
           <IconLogout className="h-[18px] w-[18px]" />
           Log Out
-        </NavLink>
+        </button>
       </div>
 
       <div className="mx-3 mb-4 overflow-hidden rounded-2xl bg-gradient-to-br from-[#3a2c18] to-[#221c14] p-4">

@@ -109,3 +109,26 @@ export const IconMenu = (props: SVGProps<SVGSVGElement>) => (
     <path d="M4 6h16M4 12h16M4 18h16" />
   </svg>
 );
+
+export const IconUser = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...props}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 20c0-4.2 3.6-7 8-7s8 2.8 8 7" />
+  </svg>
+);
+
+export const IconCamera = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...props}>
+    <path d="M4 8h3l1.6-2.4A2 2 0 0110.3 4.6h3.4a2 2 0 011.7 1L17 8h3a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0120 20H4a1.5 1.5 0 01-1.5-1.5v-9A1.5 1.5 0 014 8z" />
+    <circle cx="12" cy="14" r="3.4" />
+  </svg>
+);
+
+export const IconTrash = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...props}>
+    <path d="M4 7h16" />
+    <path d="M9 7V4.5A1.5 1.5 0 0110.5 3h3A1.5 1.5 0 0115 4.5V7" />
+    <path d="M6 7l1 13a1.5 1.5 0 001.5 1.4h7A1.5 1.5 0 0017 20l1-13" />
+    <path d="M10 11v6M14 11v6" />
+  </svg>
+);

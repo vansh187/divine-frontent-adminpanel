@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -34,6 +35,7 @@ function validatePhone(value: string): string | null {
 
 export function CustomersListPage() {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
 
   const [items, setItems] = useState<ApiCustomer[]>([]);
   const [totalItems, setTotalItems] = useState(0);
@@ -137,6 +139,11 @@ export function CustomersListPage() {
     }
   }
 
+  function openCustomer(customer: ApiCustomer) {
+    sessionStorage.setItem(`dvi_customer_${customer.id}`, JSON.stringify(customer));
+    navigate(`/admin/customers/${customer.id}`, { state: { customer } });
+  }
+
   return (
     <div>
       <PageHeader
@@ -201,8 +208,7 @@ export function CustomersListPage() {
           ) : (
             <>
               {items.map((c) => (
-                // no navigate onClick: backend has no GET /admin/customers/{id} yet
-                <Tr key={c.id}>
+                <Tr key={c.id} onClick={() => openCustomer(c)}>
                   <Td>
                     <div className="flex items-center gap-3">
                       <Avatar name={c.full_name || "Unnamed lead"} />

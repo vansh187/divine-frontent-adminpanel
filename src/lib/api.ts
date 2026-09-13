@@ -171,3 +171,46 @@ export function createCustomer(
     body: JSON.stringify(payload),
   });
 }
+
+export type BrokerProject = "suraksha-enclave" | "ops-divine-greens";
+export type BrokerSort = "-created_at" | "created_at" | "full_name" | "-full_name";
+
+export interface ApiBroker {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  project: BrokerProject;
+  created_at: string;
+  last_activity_at: string;
+}
+
+export interface BrokerListResponse {
+  items: ApiBroker[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface BrokerListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  project?: BrokerProject;
+  sort?: BrokerSort;
+}
+
+export function listBrokers(
+  accessToken: string,
+  params: BrokerListParams = {}
+): Promise<BrokerListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<BrokerListResponse>(`/admin/brokers${qs ? `?${qs}` : ""}`, accessToken);
+}

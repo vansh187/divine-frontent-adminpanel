@@ -9,7 +9,7 @@ interface PaginationProps {
 }
 
 export function Pagination({ page, pages, total, pageSize, onPageChange }: PaginationProps) {
-  const start = (page - 1) * pageSize + 1;
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-1 py-4">

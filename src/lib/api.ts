@@ -116,3 +116,58 @@ export function authRequest<T>(
     },
   });
 }
+
+export type CustomerSource = "WEBSITE" | "BROKER_CHANNEL";
+export type CustomerStatus = "LEAD" | "ACTIVE" | "BOOKED" | "INACTIVE";
+
+export interface ApiCustomer {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  source: CustomerSource;
+  status: CustomerStatus;
+  created_at: string;
+  last_activity_at: string;
+}
+
+export interface CustomerListResponse {
+  items: ApiCustomer[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface CustomerListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  source?: CustomerSource;
+  status?: CustomerStatus;
+  sort?: string;
+}
+
+export function listCustomers(
+  accessToken: string,
+  params: CustomerListParams = {}
+): Promise<CustomerListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<CustomerListResponse>(`/admin/customers${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export function createCustomer(
+  accessToken: string,
+  payload: { full_name: string; email: string; phone: string }
+): Promise<ApiCustomer> {
+  return authRequest<ApiCustomer>("/admin/customers", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

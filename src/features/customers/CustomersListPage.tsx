@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -10,11 +9,17 @@ import { Select } from "../../components/ui/Select";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { Table, Td, Th, THead, Tr } from "../../components/ui/Table";
 import { TextField } from "../../components/ui/TextField";
-import { customers as seedCustomers } from "../../lib/mockData";
-import type { Customer } from "../../lib/types";
+import {
+  ApiError,
+  createCustomer,
+  listCustomers,
+  type ApiCustomer,
+  type CustomerStatus,
+} from "../../lib/api";
+import { useAuth } from "../../lib/auth";
 import { validateEmail, validateFullName } from "../../lib/validation";
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 20;
 
 interface FieldErrors {
   name?: string | null;
@@ -28,41 +33,79 @@ function validatePhone(value: string): string | null {
 }
 
 export function CustomersListPage() {
-  const navigate = useNavigate();
-  const [customers, setCustomers] = useState<Customer[]>(seedCustomers);
+  const { accessToken } = useAuth();
+
+  const [items, setItems] = useState<ApiCustomer[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("ALL");
-  const [page, setPage] = useState(1);
+  const [status, setStatus] = useState("ALL");
 
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
-  const filtered = useMemo(() => {
-    return customers.filter((c) => {
-      const matchesSearch =
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.email.toLowerCase().includes(search.toLowerCase()) ||
-        c.phone.includes(search);
-      const matchesSource = source === "ALL" || c.source === source;
-      return matchesSearch && matchesSource;
-    });
-  }, [customers, search, source]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+
+    listCustomers(accessToken, {
+      page,
+      page_size: PAGE_SIZE,
+      search: search || undefined,
+      source: source === "ALL" ? undefined : (source as "WEBSITE" | "BROKER_CHANNEL"),
+      status: status === "ALL" ? undefined : (status as CustomerStatus),
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setItems(res.items);
+        setTotalItems(res.pagination.total_items);
+        setTotalPages(Math.max(1, res.pagination.total_pages));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(err instanceof ApiError ? err.message : "Failed to load customers.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, page, search, source, status]);
 
   function resetForm() {
     setName("");
     setEmail("");
     setPhone("");
     setFieldErrors({});
+    setAddError(null);
   }
 
-  function handleAddCustomer(e: React.FormEvent) {
+  async function handleAddCustomer(e: React.FormEvent) {
     e.preventDefault();
+    if (!accessToken) return;
 
     const errors: FieldErrors = {
       name: validateFullName(name),
@@ -72,24 +115,26 @@ export function CustomersListPage() {
     setFieldErrors(errors);
     if (Object.values(errors).some(Boolean)) return;
 
-    const today = new Date().toISOString().slice(0, 10);
-    const newCustomer: Customer = {
-      id: `CUS-${Date.now().toString().slice(-6)}`,
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      source: "CUSTOMER",
-      status: "LEAD",
-      project: "—",
-      createdAt: today,
-      lastActivity: today,
-      siteVisits: 0,
-    };
-
-    setCustomers((prev) => [newCustomer, ...prev]);
-    setAddOpen(false);
-    resetForm();
-    setPage(1);
+    setAdding(true);
+    setAddError(null);
+    try {
+      await createCustomer(accessToken, {
+        full_name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+      });
+      setAddOpen(false);
+      resetForm();
+      setPage(1);
+      setSearch("");
+      setSearchInput("");
+      setSource("ALL");
+      setStatus("ALL");
+    } catch (err) {
+      setAddError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setAdding(false);
+    }
   }
 
   return (
@@ -104,11 +149,8 @@ export function CustomersListPage() {
         <SearchInput
           placeholder="Search by name, email or phone"
           className="flex-1 min-w-[220px]"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
         />
         <Select
           value={source}
@@ -118,10 +160,29 @@ export function CustomersListPage() {
           }}
         >
           <option value="ALL">All sources</option>
-          <option value="CUSTOMER">Website</option>
+          <option value="WEBSITE">Website</option>
           <option value="BROKER_CHANNEL">Channel Partner</option>
         </Select>
+        <Select
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="ALL">All statuses</option>
+          <option value="LEAD">Lead</option>
+          <option value="ACTIVE">Active</option>
+          <option value="BOOKED">Booked</option>
+          <option value="INACTIVE">Inactive</option>
+        </Select>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
+          {loadError}
+        </div>
+      )}
 
       <Table>
         <THead>
@@ -131,40 +192,51 @@ export function CustomersListPage() {
           <Th>Status</Th>
         </THead>
         <tbody>
-          {pageItems.map((c) => (
-            <Tr key={c.id} onClick={() => navigate(`/admin/customers/${c.id}`)}>
-              <Td>
-                <div className="flex items-center gap-3">
-                  <Avatar name={c.name} />
-                  <div>
-                    <p className="font-semibold text-text">{c.name}</p>
-                    <p className="text-xs text-text-muted">{c.id}</p>
-                  </div>
-                </div>
-              </Td>
-              <Td>
-                <p className="text-text">{c.email}</p>
-                <p className="text-xs text-text-muted">{c.phone}</p>
-              </Td>
-              <Td>
-                <StatusBadge status={c.source} label={c.source === "CUSTOMER" ? "Website" : "Channel Partner"} />
-              </Td>
-              <Td>
-                <StatusBadge status={c.status} />
-              </Td>
-            </Tr>
-          ))}
-          {pageItems.length === 0 && (
+          {loading ? (
             <tr>
               <td colSpan={4} className="px-4 py-10 text-center text-sm text-text-muted">
-                No customers match your filters.
+                Loading customers...
               </td>
             </tr>
+          ) : (
+            <>
+              {items.map((c) => (
+                // no navigate onClick: backend has no GET /admin/customers/{id} yet
+                <Tr key={c.id}>
+                  <Td>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={c.full_name || "Unnamed lead"} />
+                      <div>
+                        <p className="font-semibold text-text">{c.full_name || "Unnamed lead"}</p>
+                        <p className="text-xs text-text-muted">{c.id}</p>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td>
+                    <p className="text-text">{c.email ?? "—"}</p>
+                    <p className="text-xs text-text-muted">{c.phone ?? "—"}</p>
+                  </Td>
+                  <Td>
+                    <StatusBadge status={c.source} label={c.source === "WEBSITE" ? "Website" : "Channel Partner"} />
+                  </Td>
+                  <Td>
+                    <StatusBadge status={c.status} />
+                  </Td>
+                </Tr>
+              ))}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-sm text-text-muted">
+                    No customers match your filters.
+                  </td>
+                </tr>
+              )}
+            </>
           )}
         </tbody>
       </Table>
 
-      <Pagination page={page} pages={pages} total={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+      <Pagination page={page} pages={totalPages} total={totalItems} pageSize={PAGE_SIZE} onPageChange={setPage} />
 
       <Modal
         open={addOpen}
@@ -184,11 +256,19 @@ export function CustomersListPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleAddCustomer}>Add Customer</Button>
+            <Button onClick={handleAddCustomer} disabled={adding}>
+              {adding ? "Adding..." : "Add Customer"}
+            </Button>
           </>
         }
       >
         <form className="space-y-4" onSubmit={handleAddCustomer} noValidate>
+          {addError && (
+            <div className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
+              {addError}
+            </div>
+          )}
+
           <TextField
             label="Full name"
             placeholder="Arjun Mehta"
@@ -223,6 +303,7 @@ export function CustomersListPage() {
             error={fieldErrors.phone}
             required
           />
+
           <div className="flex items-center gap-4 rounded-xl border border-border bg-surface-muted p-3 text-xs text-text-muted">
             <span>
               Source: <span className="font-semibold text-text">Website</span>

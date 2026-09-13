@@ -1,8 +1,17 @@
-import { currentAdmin } from "../../lib/mockData";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../lib/auth";
 import { Avatar } from "../ui/Avatar";
 import { IconBell, IconMenu } from "./icons";
 
 export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
+  const { admin, logout } = useAuth();
+  const navigate = useNavigate();
+  const displayName = admin?.fullName ?? admin?.email ?? "Admin";
+
+  function handleLogout() {
+    logout();
+    navigate("/admin/login");
+  }
   return (
     <header className="sticky top-0 z-30 flex items-center gap-4 border-b border-border bg-bg/95 px-4 py-4 backdrop-blur sm:px-8">
       <button
@@ -39,12 +48,18 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-danger" />
         </button>
         <div className="flex items-center gap-2.5 rounded-xl border border-border bg-surface py-1.5 pl-1.5 pr-3">
-          <Avatar name={currentAdmin.name} />
+          <Avatar name={displayName} />
           <div className="hidden text-left leading-tight sm:block">
-            <p className="text-sm font-semibold text-text">{currentAdmin.name}</p>
-            <p className="text-xs text-text-muted">Sales Executive</p>
+            <p className="text-sm font-semibold text-text">{displayName}</p>
+            <p className="text-xs text-text-muted">{admin?.email}</p>
           </div>
         </div>
+        <button
+          onClick={handleLogout}
+          className="rounded-xl bg-gold px-3 py-2 text-sm font-medium text-white hover:bg-gold-dark"
+        >
+          Log out
+        </button>
       </div>
     </header>
   );

@@ -1,21 +1,57 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthLayout } from "../../components/layout/AuthLayout";
 import { Button } from "../../components/ui/Button";
 import { TextField } from "../../components/ui/TextField";
+import { ApiError } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { validateEmail, validateLoginPassword } from "../../lib/validation";
+
+interface FieldErrors {
+  email?: string | null;
+  password?: string | null;
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  function handleSubmit(e: React.FormEvent) {
+  const state = location.state as { reset?: boolean; signedUp?: boolean } | null;
+  const justReset = state?.reset;
+  const justSignedUp = state?.signedUp;
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // Static UI only — wires up to AUTH-02 once backend is available.
+    setError(null);
+
+    const errors: FieldErrors = {
+      email: validateEmail(email),
+      password: validateLoginPassword(password),
+    };
+    setFieldErrors(errors);
+    if (Object.values(errors).some(Boolean)) {
+      return;
+    }
+
     setSubmitting(true);
-    setTimeout(() => {
-      setSubmitting(false);
+    try {
+      await login(email.trim(), password);
       navigate("/admin");
-    }, 400);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setError("Incorrect email or password.");
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -30,13 +66,34 @@ export function LoginPage() {
         </>
       }
     >
-      <form className="space-y-5" onSubmit={handleSubmit}>
+      <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+        {justReset && (
+          <div className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
+            Password reset successful. Please sign in with your new password.
+          </div>
+        )}
+        {justSignedUp && (
+          <div className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
+            Account created. Please sign in with your new credentials.
+          </div>
+        )}
+        {error && (
+          <div className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
+            {error}
+          </div>
+        )}
+
         <TextField
           label="Email address"
           type="email"
           placeholder="admin@divinevisioninfra.com"
           autoComplete="email"
-          defaultValue="admin@divinevisioninfra.com"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: null }));
+          }}
+          error={fieldErrors.email}
           required
         />
         <div>
@@ -45,7 +102,12 @@ export function LoginPage() {
             type="password"
             placeholder="••••••••"
             autoComplete="current-password"
-            defaultValue="••••••••"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: null }));
+            }}
+            error={fieldErrors.password}
             required
           />
           <div className="mt-2 text-right">
@@ -54,11 +116,6 @@ export function LoginPage() {
             </Link>
           </div>
         </div>
-
-        <label className="flex items-center gap-2 text-sm text-text-muted">
-          <input type="checkbox" className="h-4 w-4 rounded border-border text-gold accent-[#b8894f]" />
-          Keep me signed in on this device
-        </label>
 
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? "Signing in..." : "Sign in"}

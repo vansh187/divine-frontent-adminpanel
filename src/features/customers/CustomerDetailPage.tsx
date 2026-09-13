@@ -92,7 +92,7 @@ export function CustomerDetailPage() {
               <div>
                 <dt className="text-xs text-text-muted">Source</dt>
                 <dd>
-                  <StatusBadge status={customer.source} label={customer.source === "CUSTOMER" ? "Direct" : "Broker Channel"} />
+                  <StatusBadge status={customer.source} label={customer.source === "CUSTOMER" ? "Website" : "Channel Partner"} />
                 </dd>
               </div>
               <div>

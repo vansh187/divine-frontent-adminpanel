@@ -17,12 +17,12 @@ import {
 const NAV_ITEMS = [
   { to: "/admin", label: "Dashboard", icon: IconDashboard, end: true },
   { to: "/admin/customers", label: "Customers", icon: IconCustomers },
-  { to: "/admin/brokers", label: "Brokers", icon: IconBrokers },
+  { to: "/admin/brokers", label: "Channel Partners", icon: IconBrokers },
   { to: "/admin/site-visits", label: "Site Visits", icon: IconVisits },
   { to: "/admin/bookings", label: "Bookings", icon: IconBookings },
   { to: "/admin/refunds", label: "Refunds", icon: IconRefunds },
   { to: "/admin/revenue", label: "Revenue", icon: IconRevenue },
-  { to: "/admin/broker-settlements", label: "Broker Settlements", icon: IconSettlements },
+  { to: "/admin/broker-settlements", label: "Channel Partner Settlements", icon: IconSettlements },
   { to: "/admin/audit", label: "Audit Logs", icon: IconAudit },
 ];
 

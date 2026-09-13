@@ -33,7 +33,7 @@ export function BrokerDetailPage() {
 
   return (
     <div>
-      <BackLink to="/admin/brokers" label="Back to brokers" />
+      <BackLink to="/admin/brokers" label="Back to channel partners" />
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -73,7 +73,7 @@ export function BrokerDetailPage() {
           </Card>
 
           <Card className="p-5">
-            <h3 className="mb-4 text-sm font-bold text-text">Broker-Sourced Site Visits</h3>
+            <h3 className="mb-4 text-sm font-bold text-text">Channel Partner-Sourced Site Visits</h3>
             <Table>
               <THead>
                 <Th>Customer</Th>
@@ -85,7 +85,7 @@ export function BrokerDetailPage() {
                 {brokerVisits.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-center text-sm text-text-muted">
-                      No site visits recorded for this broker yet.
+                      No site visits recorded for this channel partner yet.
                     </td>
                   </tr>
                 )}

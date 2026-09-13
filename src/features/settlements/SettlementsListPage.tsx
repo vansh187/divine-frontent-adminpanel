@@ -34,11 +34,11 @@ export function SettlementsListPage() {
 
   return (
     <div>
-      <PageHeader title="Broker Settlements" subtitle="Finance/admin commission review queue" />
+      <PageHeader title="Channel Partner Settlements" subtitle="Finance/admin commission review queue" />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput
-          placeholder="Search by broker or booking ID"
+          placeholder="Search by channel partner or booking ID"
           className="flex-1 min-w-[220px]"
           value={search}
           onChange={(e) => {
@@ -67,7 +67,7 @@ export function SettlementsListPage() {
       <Table>
         <THead>
           <Th>Settlement ID</Th>
-          <Th>Broker</Th>
+          <Th>Channel Partner</Th>
           <Th>Booking / Project</Th>
           <Th>Commission</Th>
           <Th>Status</Th>

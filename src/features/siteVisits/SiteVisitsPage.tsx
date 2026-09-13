@@ -31,7 +31,7 @@ export function SiteVisitsPage() {
 
   return (
     <div>
-      <PageHeader title="Site Visits" subtitle="Unified customer and broker-channel site visits" />
+      <PageHeader title="Site Visits" subtitle="Unified customer and channel partner site visits" />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput
@@ -55,7 +55,7 @@ export function SiteVisitsPage() {
                 source === s ? "bg-ink text-white" : "bg-surface text-text-muted hover:bg-surface-muted"
               }`}
             >
-              {s === "ALL" ? "All" : s === "CUSTOMER" ? "Customer" : "Broker Channel"}
+              {s === "ALL" ? "All" : s === "CUSTOMER" ? "Customer" : "Channel Partner"}
             </button>
           ))}
         </div>
@@ -96,7 +96,7 @@ export function SiteVisitsPage() {
                 {v.project} · {v.plot}
               </Td>
               <Td>
-                <StatusBadge status={v.source} label={v.source === "CUSTOMER" ? "Direct" : v.brokerName} />
+                <StatusBadge status={v.source} label={v.source === "CUSTOMER" ? "Website" : v.brokerName} />
               </Td>
               <Td className="text-text-muted">{v.scheduledAt}</Td>
               <Td>{v.assignedTo}</Td>

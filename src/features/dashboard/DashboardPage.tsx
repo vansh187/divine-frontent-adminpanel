@@ -46,7 +46,7 @@ export function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Customers" value={dashboardSummary.customers_total} hint="Total onboarded" />
-        <StatCard label="Brokers" value={dashboardSummary.brokers_total} hint="Active channel partners" />
+        <StatCard label="Channel Partners" value={dashboardSummary.brokers_total} hint="Active channel partners" />
         <StatCard label="Pending KYC" value={dashboardSummary.pending_kyc} hint="Awaiting review" tone="gold" />
         <StatCard label="Approved Bookings" value={dashboardSummary.approved_bookings} hint="This quarter" />
       </div>
@@ -122,7 +122,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartCard title="Customer &amp; Broker Growth" subtitle="Monthly new records">
+        <ChartCard title="Customer &amp; Channel Partner Growth" subtitle="Monthly new records">
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={customerBrokerTrend} barGap={6}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e8e0d1" vertical={false} />
@@ -131,12 +131,12 @@ export function DashboardPage() {
               <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#e8e0d1", fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="customers" name="Customers" fill={GOLD} radius={[6, 6, 0, 0]} />
-              <Bar dataKey="brokers" name="Brokers" fill={GOLD_LIGHT} radius={[6, 6, 0, 0]} />
+              <Bar dataKey="brokers" name="Channel Partners" fill={GOLD_LIGHT} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Site Visit Trend" subtitle="Customer vs broker channel">
+        <ChartCard title="Site Visit Trend" subtitle="Customer vs channel partner">
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={siteVisitTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e8e0d1" vertical={false} />
@@ -145,7 +145,7 @@ export function DashboardPage() {
               <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#e8e0d1", fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Line type="monotone" dataKey="customer" name="Customer" stroke={GOLD} strokeWidth={2.5} dot={false} />
-              <Line type="monotone" dataKey="broker" name="Broker Channel" stroke="#4a7fc9" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="broker" name="Channel Partner" stroke="#4a7fc9" strokeWidth={2.5} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>

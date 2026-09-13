@@ -70,7 +70,7 @@ export function SettlementDetailPage() {
             <h3 className="mb-4 text-sm font-bold text-text">Deal Context</h3>
             <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
               <div>
-                <dt className="text-xs text-text-muted">Broker</dt>
+                <dt className="text-xs text-text-muted">Channel Partner</dt>
                 <dd className="font-medium text-text">{settlement.brokerName}</dd>
               </div>
               <div>

@@ -6,7 +6,6 @@ import { Pagination } from "../../components/ui/Pagination";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { Table, Td, Th, THead, Tr } from "../../components/ui/Table";
-import { formatCompactCurrency } from "../../lib/format";
 import { brokers } from "../../lib/mockData";
 
 const PAGE_SIZE = 6;
@@ -31,11 +30,11 @@ export function BrokersListPage() {
 
   return (
     <div>
-      <PageHeader title="Brokers / Channel Partners" subtitle="Performance and broker-sourced activity" />
+      <PageHeader title="Channel Partners" subtitle="Performance and channel partner-sourced activity" />
 
       <div className="mb-4">
         <SearchInput
-          placeholder="Search by broker or agency name"
+          placeholder="Search by channel partner or agency name"
           className="max-w-md"
           value={search}
           onChange={(e) => {
@@ -47,12 +46,11 @@ export function BrokersListPage() {
 
       <Table>
         <THead>
-          <Th>Broker</Th>
+          <Th>Channel Partner</Th>
           <Th>Contact</Th>
           <Th>Leads</Th>
           <Th>Site Visits</Th>
           <Th>Conversions</Th>
-          <Th>Commission Earned</Th>
           <Th>Status</Th>
         </THead>
         <tbody>
@@ -74,7 +72,6 @@ export function BrokersListPage() {
               <Td>{b.leadsSourced}</Td>
               <Td>{b.siteVisitsSourced}</Td>
               <Td>{b.bookingsConverted}</Td>
-              <Td className="font-semibold text-text">{formatCompactCurrency(b.commissionEarned)}</Td>
               <Td>
                 <StatusBadge status={b.status} />
               </Td>

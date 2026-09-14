@@ -10,6 +10,7 @@ import { CustomerDetailPage } from "./features/customers/CustomerDetailPage";
 import { BrokersListPage } from "./features/brokers/BrokersListPage";
 import { BrokerDetailPage } from "./features/brokers/BrokerDetailPage";
 import { SiteVisitsPage } from "./features/siteVisits/SiteVisitsPage";
+import { SiteVisitDetailPage } from "./features/siteVisits/SiteVisitDetailPage";
 import { BookingsQueuePage } from "./features/bookings/BookingsQueuePage";
 import { BookingDetailPage } from "./features/bookings/BookingDetailPage";
 import { RefundsPage } from "./features/refunds/RefundsPage";
@@ -44,6 +45,7 @@ function App() {
         <Route path="brokers" element={<BrokersListPage />} />
         <Route path="brokers/:id" element={<BrokerDetailPage />} />
         <Route path="site-visits" element={<SiteVisitsPage />} />
+        <Route path="site-visits/:id" element={<SiteVisitDetailPage />} />
         <Route path="bookings" element={<BookingsQueuePage />} />
         <Route path="bookings/:id" element={<BookingDetailPage />} />
         <Route path="refunds" element={<RefundsPage />} />

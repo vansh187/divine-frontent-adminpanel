@@ -5,6 +5,7 @@ import { Card } from "../../components/ui/Card";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { ApiError, getVisit, type ApiVisit, type BrokerProject } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { formatDate, formatDateTime } from "../../lib/format";
 
 interface VisitRouteState {
   visit?: ApiVisit;
@@ -32,24 +33,6 @@ function projectLabel(project: BrokerProject | null) {
   return "-";
 }
 
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function formatDate(value: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(date);
-}
-
 function deriveStatus(v: ApiVisit) {
   if (v.status === "cancelled") return "cancelled";
   const date = v.visit_date ? new Date(v.visit_date) : null;
@@ -62,11 +45,10 @@ function deriveStatus(v: ApiVisit) {
 }
 
 function scheduleLabel(v: ApiVisit) {
-  if (v.status === "requested" || !v.visit_time) {
+  if (v.status === "requested" || !v.visit_time || !v.visit_date) {
     return v.preferred_window ? `Requested · ${v.preferred_window}` : "Awaiting confirmation";
   }
-  const date = formatDate(v.visit_date);
-  return date ? `${date} · ${v.visit_time}` : v.visit_time;
+  return `${formatDate(v.visit_date)} · ${v.visit_time}`;
 }
 
 export function SiteVisitDetailPage() {

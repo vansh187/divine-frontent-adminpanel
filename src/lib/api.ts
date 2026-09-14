@@ -280,3 +280,138 @@ export function listVisits(
 export function getVisit(accessToken: string, id: string): Promise<ApiVisit> {
   return authRequest<ApiVisit>(`/admin/visits/${id}`, accessToken);
 }
+
+export type BookingStatus = "pending_kyc_review" | "booked" | "rejected" | "cancelled";
+export type KycStatus = "pending" | "verified" | "needs_resubmission" | "rejected";
+export type BookingDocumentType =
+  | "aadhaar_front"
+  | "aadhaar_back"
+  | "pan_card"
+  | "applicant_photo"
+  | "cancelled_cheque";
+
+export interface ApiBookingListItem {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  project_name: string;
+  unit_number: string;
+  amount: number;
+  status: BookingStatus;
+  kyc_status: KycStatus;
+  version: number;
+  created_at: string;
+  last_activity_at: string;
+}
+
+export interface BookingListResponse {
+  items: ApiBookingListItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface BookingListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: BookingStatus;
+  kyc_status?: KycStatus;
+}
+
+export function listBookings(
+  accessToken: string,
+  params: BookingListParams = {}
+): Promise<BookingListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<BookingListResponse>(`/admin/bookings${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export interface ApiBookingDocument {
+  document_type: BookingDocumentType;
+  label: string;
+  uploaded: boolean;
+  preview_url: string | null;
+  preview_url_expires_in: number | null;
+  uploaded_at: string | null;
+}
+
+export interface ApiBookingDecision {
+  actor: string;
+  action: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface ApiBookingDetail {
+  id: string;
+  status: BookingStatus;
+  kyc_status: KycStatus;
+  version: number;
+  admin_note: string | null;
+  customer_id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  project_name: string;
+  unit_number: string;
+  amount: number;
+  payment_id: string;
+  payment_method: string;
+  payment_status: string;
+  razorpay_payment_id: string | null;
+  utr_number: string | null;
+  documents: ApiBookingDocument[];
+  decision_history: ApiBookingDecision[];
+  created_at: string;
+  last_activity_at: string;
+}
+
+export function getBooking(accessToken: string, id: string): Promise<ApiBookingDetail> {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}`, accessToken);
+}
+
+export interface BookingDecisionPayload {
+  note?: string;
+  version: number;
+}
+
+export function approveBooking(
+  accessToken: string,
+  id: string,
+  payload: BookingDecisionPayload
+): Promise<ApiBookingDetail> {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/approve`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectBooking(
+  accessToken: string,
+  id: string,
+  payload: BookingDecisionPayload
+): Promise<ApiBookingDetail> {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/reject`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelBooking(
+  accessToken: string,
+  id: string,
+  payload: BookingDecisionPayload
+): Promise<ApiBookingDetail> {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/cancel`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { titleCase } from "../../lib/format";
 
 type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
@@ -14,6 +15,7 @@ const STATUS_TONE: Record<string, Tone> = {
   // Booking
   PAYMENT_RECEIVED: "info",
   KYC_PENDING: "warning",
+  PENDING_KYC_REVIEW: "warning",
   UNDER_REVIEW: "warning",
   APPROVED: "success",
   REJECTED: "danger",
@@ -60,13 +62,6 @@ const STATUS_TONE: Record<string, Tone> = {
   REVERSED: "neutral",
 };
 
-function toLabel(status: string) {
-  return status
-    .split("_")
-    .map((w) => w[0] + w.slice(1).toLowerCase())
-    .join(" ");
-}
-
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
   const tone = STATUS_TONE[status] ?? "neutral";
   return (
@@ -76,7 +71,7 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
         TONE_CLASSES[tone]
       )}
     >
-      {label ?? toLabel(status)}
+      {label ?? titleCase(status)}
     </span>
   );
 }

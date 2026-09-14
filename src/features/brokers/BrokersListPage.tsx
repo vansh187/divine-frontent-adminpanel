@@ -15,22 +15,13 @@ import {
   type BrokerSort,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { formatDateTime } from "../../lib/format";
 
 const PAGE_SIZE = 20;
 
 function projectLabel(project: BrokerProject) {
   if (project === "suraksha-enclave") return "Suraksha Enclave";
   return "Ops Divine Greens";
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 export function BrokersListPage() {

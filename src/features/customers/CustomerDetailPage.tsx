@@ -6,6 +6,7 @@ import { Card } from "../../components/ui/Card";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { ApiError, listCustomers, type ApiCustomer } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { formatDateTime } from "../../lib/format";
 
 interface CustomerRouteState {
   customer?: ApiCustomer;
@@ -21,17 +22,6 @@ function readCachedCustomer(id: string | undefined) {
   } catch {
     return null;
   }
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 export function CustomerDetailPage() {

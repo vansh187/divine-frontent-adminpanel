@@ -21,3 +21,26 @@ export function initials(name: string): string {
     .join("")
     .toUpperCase();
 }
+
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(date);
+}
+
+/** SNAKE_CASE or snake_case -> "Title Case", case-insensitive on input. */
+export function titleCase(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}

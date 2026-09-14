@@ -8,6 +8,7 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { Table, Td, Th, THead, Tr } from "../../components/ui/Table";
 import { ApiError, listVisits, type ApiVisit, type BrokerProject, type VisitOriginType } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { formatDate } from "../../lib/format";
 
 const PAGE_SIZE = 20;
 
@@ -17,12 +18,6 @@ function projectLabel(project: BrokerProject | null) {
   if (project === "suraksha-enclave") return "Suraksha Enclave";
   if (project === "ops-divine-greens") return "Ops Divine Greens";
   return "—";
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(date);
 }
 
 function deriveStatus(v: ApiVisit): DisplayStatus {

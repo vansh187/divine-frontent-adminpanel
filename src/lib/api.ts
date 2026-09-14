@@ -214,3 +214,69 @@ export function listBrokers(
   const qs = query.toString();
   return authRequest<BrokerListResponse>(`/admin/brokers${qs ? `?${qs}` : ""}`, accessToken);
 }
+
+export type VisitOriginType = "CUSTOMER" | "CHANNEL_PARTNER";
+export type VisitStatus =
+  | "requested"
+  | "scheduled"
+  | "confirmed"
+  | "completed"
+  | "follow_up"
+  | "no_show"
+  | "converted"
+  | "cancelled";
+export type VisitSort = "visit_date" | "-visit_date" | "created_at" | "-created_at" | "customer_name" | "-customer_name";
+
+export interface ApiVisit {
+  id: string;
+  origin_type: VisitOriginType;
+  customer_name: string;
+  customer_contact: string | null;
+  project_name: BrokerProject | null;
+  plot_number: string | null;
+  source: string | null;
+  assigned_to: string | null;
+  customer_email: string | null;
+  preferred_window: string | null;
+  visit_date: string | null;
+  visit_time: string | null;
+  status: VisitStatus;
+  notes: string | null;
+  created_at: string;
+  last_activity_at: string;
+}
+
+export interface VisitListResponse {
+  items: ApiVisit[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface VisitListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  origin_type?: VisitOriginType;
+  status?: VisitStatus;
+  sort?: VisitSort;
+}
+
+export function listVisits(
+  accessToken: string,
+  params: VisitListParams = {}
+): Promise<VisitListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<VisitListResponse>(`/admin/visits${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export function getVisit(accessToken: string, id: string): Promise<ApiVisit> {
+  return authRequest<ApiVisit>(`/admin/visits/${id}`, accessToken);
+}

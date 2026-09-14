@@ -108,7 +108,7 @@ export interface SiteVisit {
 export interface Document {
   id: string;
   name: string;
-  type: "PAN" | "AADHAAR" | "ADDRESS_PROOF" | "PHOTO" | "OTHER";
+  type: "PAN" | "AADHAAR" | "PHOTO" | "CANCELLED_CHEQUE";
   status: KycStatus;
   uploadedAt: string;
 }

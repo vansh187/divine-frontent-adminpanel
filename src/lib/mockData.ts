@@ -120,8 +120,8 @@ export const bookings: Booking[] = [
     documents: [
       { id: "DOC-1", name: "PAN Card", type: "PAN", status: "VERIFIED", uploadedAt: "2026-09-08" },
       { id: "DOC-2", name: "Aadhaar Card", type: "AADHAAR", status: "VERIFIED", uploadedAt: "2026-09-08" },
-      { id: "DOC-3", name: "Address Proof", type: "ADDRESS_PROOF", status: "VERIFIED", uploadedAt: "2026-09-08" },
-      { id: "DOC-4", name: "Passport Photo", type: "PHOTO", status: "VERIFIED", uploadedAt: "2026-09-08" },
+      { id: "DOC-3", name: "Cancelled Cheque", type: "CANCELLED_CHEQUE", status: "VERIFIED", uploadedAt: "2026-09-08" },
+      { id: "DOC-4", name: "Photo", type: "PHOTO", status: "VERIFIED", uploadedAt: "2026-09-08" },
     ],
     decisionHistory: [
       { actor: "System", action: "Payment received", timestamp: "2026-09-08 11:02 AM" },
@@ -147,7 +147,7 @@ export const bookings: Booking[] = [
     documents: [
       { id: "DOC-5", name: "PAN Card", type: "PAN", status: "VERIFIED", uploadedAt: "2026-09-09" },
       { id: "DOC-6", name: "Aadhaar Card", type: "AADHAAR", status: "NEEDS_RESUBMISSION", uploadedAt: "2026-09-09" },
-      { id: "DOC-7", name: "Address Proof", type: "ADDRESS_PROOF", status: "PENDING", uploadedAt: "2026-09-09" },
+      { id: "DOC-7", name: "Cancelled Cheque", type: "CANCELLED_CHEQUE", status: "PENDING", uploadedAt: "2026-09-09" },
     ],
     decisionHistory: [
       { actor: "System", action: "Payment received", timestamp: "2026-09-09 09:12 AM" },

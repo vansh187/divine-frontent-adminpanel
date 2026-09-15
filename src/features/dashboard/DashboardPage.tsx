@@ -21,7 +21,6 @@ import { useAuth } from "../../lib/auth";
 import { formatCompactCurrency } from "../../lib/format";
 import {
   bookingFunnel,
-  currentAdmin,
   customerBrokerTrend,
   dashboardSummary,
   revenueTrend,
@@ -35,7 +34,7 @@ const INK = "#29231a";
 const FUNNEL_COLORS = ["#b8894f", "#c98a2c", "#2f9e6a", "#c85c4a", "#8a8172"];
 
 export function DashboardPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, admin } = useAuth();
   const [customersTotal, setCustomersTotal] = useState<number | null>(null);
   const [brokersTotal, setBrokersTotal] = useState<number | null>(null);
   const [countsError, setCountsError] = useState(false);
@@ -76,7 +75,7 @@ export function DashboardPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-text">
-            Good Morning, {currentAdmin.name.split(" ")[0]}
+            Good Morning, {admin?.fullName || admin?.email || "Admin"}
           </h1>
           <p className="mt-1 text-sm text-text-muted">Here&apos;s your work overview for today</p>
         </div>

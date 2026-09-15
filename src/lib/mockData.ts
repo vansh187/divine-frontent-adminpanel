@@ -9,14 +9,6 @@ import type {
   SiteVisit,
 } from "./types";
 
-export const currentAdmin = {
-  id: "adm_101",
-  name: "Arjun Mehta",
-  email: "arjun.mehta@divinevisioninfra.com",
-  roles: ["SUPER_ADMIN"],
-  initials: "AM",
-};
-
 export const dashboardSummary = {
   customers_total: 1482,
   brokers_total: 186,

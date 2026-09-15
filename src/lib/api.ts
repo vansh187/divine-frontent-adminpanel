@@ -13,15 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
+async function parseResponse<T>(res: Response): Promise<T> {
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const body = isJson ? await res.json().catch(() => null) : null;
 
@@ -36,6 +28,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   return body as T;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+  return parseResponse<T>(res);
 }
 
 export interface AdminUser {
@@ -111,18 +114,8 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   unauthorizedHandler = handler;
 }
 
-export function authRequest<T>(
-  path: string,
-  accessToken: string,
-  options: RequestInit = {}
-): Promise<T> {
-  return request<T>(path, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  }).catch((err) => {
+function handleUnauthorized<T>(promise: Promise<T>): Promise<T> {
+  return promise.catch((err) => {
     if (err instanceof ApiError && err.status === 401) {
       unauthorizedHandler?.();
       // Session is being torn down and the app is about to redirect to
@@ -132,6 +125,61 @@ export function authRequest<T>(
     }
     throw err;
   });
+}
+
+export function authRequest<T>(
+  path: string,
+  accessToken: string,
+  options: RequestInit = {}
+): Promise<T> {
+  return handleUnauthorized(
+    request<T>(path, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+  );
+}
+
+/** Like authRequest, but for multipart/form-data bodies — never sets a JSON Content-Type. */
+export function authUploadRequest<T>(
+  path: string,
+  accessToken: string,
+  formData: FormData
+): Promise<T> {
+  return handleUnauthorized(
+    fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: formData,
+    }).then((res) => parseResponse<T>(res))
+  );
+}
+
+export interface ApiAdminProfile {
+  id: string;
+  full_name: string;
+  employee_id: string;
+  email: string;
+  phone: string | null;
+  avatar_url: string | null;
+  initials: string;
+  created_by: string | null;
+  created_date: string | null;
+  last_updated_by: string | null;
+  last_updated_date: string | null;
+}
+
+export function getAdminProfile(accessToken: string): Promise<ApiAdminProfile> {
+  return authRequest<ApiAdminProfile>("/admin/profile", accessToken);
+}
+
+export function uploadAdminProfilePhoto(accessToken: string, file: File): Promise<ApiAdminProfile> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return authUploadRequest<ApiAdminProfile>("/admin/profile/photo", accessToken, formData);
 }
 
 export type CustomerSource = "WEBSITE" | "BROKER_CHANNEL";

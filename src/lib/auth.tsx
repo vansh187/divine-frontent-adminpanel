@@ -1,37 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as api from "./api";
-import {
-  getProfileOverrides,
-  getStoredAvatar,
-  removeStoredAvatar,
-  setProfileOverrides,
-  setStoredAvatar,
-  type ProfileOverrides,
-} from "./profileStorage";
 
 const ACCESS_TOKEN_KEY = "dvi_access_token";
 const REFRESH_TOKEN_KEY = "dvi_refresh_token";
-const EMAIL_KEY = "dvi_admin_email";
-
-function parseJwt(token: string): Record<string, unknown> | null {
-  try {
-    const [, payload] = token.split(".");
-    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-  } catch {
-    return null;
-  }
-}
 
 interface AuthAdmin {
+  id: string;
   email: string;
-  fullName?: string;
-  employeeId?: string;
-  phone?: string;
+  fullName: string;
+  employeeId: string;
+  initials: string;
   avatarUrl: string | null;
 }
 
 interface AuthContextValue {
   admin: AuthAdmin | null;
+  profileLoading: boolean;
+  profileError: string | null;
+  refreshProfile: () => void;
   accessToken: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -42,9 +28,7 @@ interface AuthContextValue {
     password: string;
   }) => Promise<api.AdminUser>;
   logout: () => void;
-  updateProfile: (patch: ProfileOverrides) => void;
-  updateAvatar: (dataUrl: string) => void;
-  removeAvatar: () => void;
+  uploadAvatar: (file: File) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -53,36 +37,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(() =>
     localStorage.getItem(ACCESS_TOKEN_KEY)
   );
-  const [email, setEmail] = useState<string | null>(() => localStorage.getItem(EMAIL_KEY));
-  const [profileVersion, setProfileVersion] = useState(0);
+
+  const [profile, setProfile] = useState<api.ApiAdminProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileRefreshToken, setProfileRefreshToken] = useState(0);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setProfile(null);
+      setProfileError(null);
+      return;
+    }
+    let cancelled = false;
+    setProfileLoading(true);
+    setProfileError(null);
+
+    api
+      .getAdminProfile(accessToken)
+      .then((res) => {
+        if (cancelled) return;
+        setProfile(res);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProfileError(err instanceof api.ApiError ? err.message : "Failed to load your profile.");
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, profileRefreshToken]);
+
+  const refreshProfile = useCallback(() => {
+    setProfileRefreshToken((v) => v + 1);
+  }, []);
 
   const admin = useMemo<AuthAdmin | null>(() => {
-    if (!accessToken || !email) return null;
-    const claims = parseJwt(accessToken);
-    const overrides = getProfileOverrides(email);
-    const fullName =
-      overrides.fullName ??
-      (claims?.full_name as string | undefined) ??
-      (claims?.name as string | undefined);
-    const employeeId = claims?.employee_id as string | undefined;
+    if (!profile) return null;
     return {
-      email,
-      fullName,
-      employeeId,
-      phone: overrides.phone,
-      avatarUrl: getStoredAvatar(email),
+      id: profile.id,
+      email: profile.email,
+      fullName: profile.full_name,
+      employeeId: profile.employee_id,
+      initials: profile.initials,
+      avatarUrl: profile.avatar_url,
     };
-    // profileVersion bumps force this memo to re-read localStorage after edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, email, profileVersion]);
+  }, [profile]);
 
   const login = useCallback(async (loginEmail: string, password: string) => {
     const tokens = await api.login({ email: loginEmail, password });
     localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
     localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
-    localStorage.setItem(EMAIL_KEY, loginEmail);
     setAccessToken(tokens.access_token);
-    setEmail(loginEmail);
   }, []);
 
   const signup = useCallback(
@@ -94,9 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
-    localStorage.removeItem(EMAIL_KEY);
     setAccessToken(null);
-    setEmail(null);
+    setProfile(null);
   }, []);
 
   // Any authenticated request that comes back 401 (expired/invalid token) logs the
@@ -106,43 +115,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => api.setUnauthorizedHandler(null);
   }, [logout]);
 
-  const updateProfile = useCallback(
-    (patch: ProfileOverrides) => {
-      if (!email) return;
-      setProfileOverrides(email, patch);
-      setProfileVersion((v) => v + 1);
+  const uploadAvatar = useCallback(
+    async (file: File) => {
+      if (!accessToken) return;
+      const updated = await api.uploadAdminProfilePhoto(accessToken, file);
+      setProfile(updated);
     },
-    [email]
+    [accessToken]
   );
-
-  const updateAvatar = useCallback(
-    (dataUrl: string) => {
-      if (!email) return;
-      setStoredAvatar(email, dataUrl);
-      setProfileVersion((v) => v + 1);
-    },
-    [email]
-  );
-
-  const removeAvatar = useCallback(() => {
-    if (!email) return;
-    removeStoredAvatar(email);
-    setProfileVersion((v) => v + 1);
-  }, [email]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       admin,
+      profileLoading,
+      profileError,
+      refreshProfile,
       accessToken,
       isAuthenticated: !!accessToken,
       login,
       signup,
       logout,
-      updateProfile,
-      updateAvatar,
-      removeAvatar,
+      uploadAvatar,
     }),
-    [admin, accessToken, login, signup, logout, updateProfile, updateAvatar, removeAvatar]
+    [admin, profileLoading, profileError, refreshProfile, accessToken, login, signup, logout, uploadAvatar]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

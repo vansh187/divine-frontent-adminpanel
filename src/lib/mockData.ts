@@ -8,52 +8,6 @@ import type {
   RevenueTransaction,
 } from "./types";
 
-export const dashboardSummary = {
-  customers_total: 1482,
-  brokers_total: 186,
-  pending_kyc: 23,
-  approved_bookings: 117,
-  refunds_in_progress: 4,
-  gross_received: 41_800_000,
-  approved_revenue: 35_200_000,
-  refunded_amount: 1_250_000,
-};
-
-export const customerBrokerTrend = [
-  { month: "Apr", customers: 88, brokers: 12 },
-  { month: "May", customers: 102, brokers: 15 },
-  { month: "Jun", customers: 96, brokers: 11 },
-  { month: "Jul", customers: 128, brokers: 19 },
-  { month: "Aug", customers: 145, brokers: 22 },
-  { month: "Sep", customers: 133, brokers: 17 },
-];
-
-export const siteVisitTrend = [
-  { month: "Apr", customer: 60, broker: 28 },
-  { month: "May", customer: 72, broker: 34 },
-  { month: "Jun", customer: 65, broker: 30 },
-  { month: "Jul", customer: 84, broker: 41 },
-  { month: "Aug", customer: 96, broker: 47 },
-  { month: "Sep", customer: 89, broker: 39 },
-];
-
-export const revenueTrend = [
-  { month: "Apr", revenue: 4_200_000 },
-  { month: "May", revenue: 5_100_000 },
-  { month: "Jun", revenue: 4_650_000 },
-  { month: "Jul", revenue: 6_300_000 },
-  { month: "Aug", revenue: 7_450_000 },
-  { month: "Sep", revenue: 6_900_000 },
-];
-
-export const bookingFunnel = [
-  { stage: "Payment Received", value: 312 },
-  { stage: "KYC Pending", value: 254 },
-  { stage: "Approved", value: 117 },
-  { stage: "Rejected", value: 38 },
-  { stage: "Cancelled / Refunded", value: 21 },
-];
-
 export const todaySchedule = [
   { time: "10:00 AM", title: "Site Visit — Green Meadows", subtitle: "With Mr. Rehan Sharma", tag: "Upcoming" },
   { time: "01:00 PM", title: "Client Follow Up Call", subtitle: "Regarding Plot #A-112", tag: "Upcoming" },

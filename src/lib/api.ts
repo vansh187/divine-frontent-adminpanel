@@ -415,3 +415,94 @@ export function cancelBooking(
     body: JSON.stringify(payload),
   });
 }
+
+export type RevenueStatus = "captured" | "cash_recorded" | "refund_pending" | "refunded";
+export type RevenueMethod = "razorpay" | "cash" | "rtgs_neft";
+
+export interface RevenueSummaryParams {
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface ApiRevenueSummary {
+  total_transactions: number;
+  gross_amount: number;
+  net_amount: number;
+  captured_amount: number;
+  cash_amount: number;
+  refund_pending_amount: number;
+  refunded_amount: number;
+}
+
+export function getRevenueSummary(
+  accessToken: string,
+  params: RevenueSummaryParams = {}
+): Promise<ApiRevenueSummary> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<ApiRevenueSummary>(`/admin/revenue/summary${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export interface ApiRevenueTransaction {
+  transaction_id: string;
+  booking_id: string | null;
+  customer_id: string;
+  customer_name: string | null;
+  project_name: string | null;
+  unit_number: string | null;
+  amount: number;
+  currency: string;
+  method: RevenueMethod;
+  status: RevenueStatus;
+  created_at: string;
+}
+
+export interface ApiRevenueTransactionDetail extends ApiRevenueTransaction {
+  razorpay_payment_id: string | null;
+  utr_number: string | null;
+}
+
+export interface RevenueTransactionListResponse {
+  items: ApiRevenueTransaction[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface RevenueTransactionListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: RevenueStatus;
+  method?: RevenueMethod;
+  date_from?: string;
+  date_to?: string;
+}
+
+export function listRevenueTransactions(
+  accessToken: string,
+  params: RevenueTransactionListParams = {}
+): Promise<RevenueTransactionListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<RevenueTransactionListResponse>(
+    `/admin/revenue/transactions${qs ? `?${qs}` : ""}`,
+    accessToken
+  );
+}
+
+export function getRevenueTransaction(
+  accessToken: string,
+  id: string
+): Promise<ApiRevenueTransactionDetail> {
+  return authRequest<ApiRevenueTransactionDetail>(`/admin/revenue/transactions/${id}`, accessToken);
+}

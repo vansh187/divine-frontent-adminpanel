@@ -210,6 +210,8 @@ export function DashboardPage() {
       setFunnelData(points);
       setPendingKyc(results[0].status === "fulfilled" ? results[0].value.pagination.total_items : null);
       setApprovedBookings(results[1].status === "fulfilled" ? results[1].value.pagination.total_items : null);
+    }).finally(() => {
+      if (!cancelled) setFunnelLoading(false);
     });
 
     return () => {
@@ -283,6 +285,8 @@ export function DashboardPage() {
           return { month: r.label, revenue };
         })
       );
+    }).finally(() => {
+      if (!cancelled) setRevenueTrendLoading(false);
     });
 
     return () => {

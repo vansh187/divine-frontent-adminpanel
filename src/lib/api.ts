@@ -422,12 +422,14 @@ export function rejectBooking(
   });
 }
 
-export function cancelBooking(
+// Cancels a plot that has already been booked (status "booked"), releasing it back to
+// available and starting a refund. Endpoint path to be confirmed once the backend team ships it.
+export function cancelBookedPlot(
   accessToken: string,
   id: string,
   payload: BookingDecisionPayload
 ): Promise<ApiBookingDetail> {
-  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/cancel`, accessToken, {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/cancel-plot`, accessToken, {
     method: "POST",
     body: JSON.stringify(payload),
   });

@@ -104,11 +104,19 @@ export function BookingDetailPage() {
             : "Plot booking cancelled. The plot has been released and a refund was started."
       );
     } catch (err) {
-      if (err instanceof ApiError && (err.code === "version_conflict" || err.code === "booking_not_reviewable")) {
+      if (
+        err instanceof ApiError &&
+        (err.code === "version_conflict" ||
+          err.code === "booking_not_reviewable" ||
+          err.code === "booking_not_cancellable")
+      ) {
         setActionError("This booking was already updated elsewhere — showing the latest state.");
         setModal(null);
         setNote("");
         fetchBooking();
+      } else if (err instanceof ApiError && err.status === 404) {
+        setActionError("This booking could not be found. It may have been removed.");
+        setModal(null);
       } else if (err instanceof ApiError) {
         setActionError(err.message || "Something went wrong. Please try again.");
       } else {

@@ -422,14 +422,14 @@ export function rejectBooking(
   });
 }
 
-// Cancels a plot that has already been booked (status "booked"), releasing it back to
-// available and starting a refund. Endpoint path to be confirmed once the backend team ships it.
+// Cancels a booking at either the KYC-review stage or once the plot is already
+// booked, releasing the plot back to available and starting a refund.
 export function cancelBookedPlot(
   accessToken: string,
   id: string,
   payload: BookingDecisionPayload
 ): Promise<ApiBookingDetail> {
-  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/cancel-plot`, accessToken, {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/cancel`, accessToken, {
     method: "POST",
     body: JSON.stringify(payload),
   });

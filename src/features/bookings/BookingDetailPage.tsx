@@ -8,7 +8,7 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import {
   ApiError,
   approveBooking,
-  cancelBooking,
+  cancelBookedPlot,
   getBooking,
   rejectBooking,
   type ApiBookingDetail,
@@ -16,7 +16,7 @@ import {
 import { useAuth } from "../../lib/auth";
 import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
 
-type ModalKind = "approve" | "reject" | "cancel" | null;
+type ModalKind = "approve" | "reject" | "cancelPlot" | null;
 
 function loadErrorMessage(err: unknown) {
   if (err instanceof ApiError) {
@@ -83,12 +83,12 @@ export function BookingDetailPage() {
     setActionError(null);
   }
 
-  async function submitDecision(kind: "approve" | "reject" | "cancel") {
+  async function submitDecision(kind: "approve" | "reject" | "cancelPlot") {
     if (!accessToken || !booking) return;
     setSubmitting(true);
     setActionError(null);
 
-    const action = kind === "approve" ? approveBooking : kind === "reject" ? rejectBooking : cancelBooking;
+    const action = kind === "approve" ? approveBooking : kind === "reject" ? rejectBooking : cancelBookedPlot;
     const payload = { note: note.trim() || undefined, version: booking.version };
 
     try {
@@ -101,7 +101,7 @@ export function BookingDetailPage() {
           ? "Booking approved. The plot is now booked and the customer's receipt has unlocked."
           : kind === "reject"
             ? "Booking rejected. The plot has been released and a refund was started."
-            : "Booking cancelled. The plot has been released and a refund was started."
+            : "Plot booking cancelled. The plot has been released and a refund was started."
       );
     } catch (err) {
       if (err instanceof ApiError && (err.code === "version_conflict" || err.code === "booking_not_reviewable")) {
@@ -172,9 +172,11 @@ export function BookingDetailPage() {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" disabled={!isReviewable} onClick={() => openModal("cancel")}>
-                Cancel Booking
-              </Button>
+              {booking.status === "booked" && (
+                <Button variant="secondary" size="sm" onClick={() => openModal("cancelPlot")}>
+                  Cancel Plot Booked
+                </Button>
+              )}
               <Button variant="danger" size="sm" disabled={!isReviewable} onClick={() => openModal("reject")}>
                 Reject
               </Button>
@@ -407,9 +409,9 @@ export function BookingDetailPage() {
       </Modal>
 
       <Modal
-        open={modal === "cancel"}
+        open={modal === "cancelPlot"}
         onClose={closeModal}
-        title="Cancel booking"
+        title="Cancel plot booked"
         footer={
           <>
             <Button variant="outline" onClick={closeModal} disabled={submitting}>
@@ -417,8 +419,8 @@ export function BookingDetailPage() {
             </Button>
             <Button
               variant="danger"
-              onClick={() => submitDecision("cancel")}
-              disabled={submitting || !note.trim()}
+              onClick={() => submitDecision("cancelPlot")}
+              disabled={submitting}
             >
               {submitting ? "Cancelling..." : "Confirm Cancel"}
             </Button>
@@ -426,14 +428,17 @@ export function BookingDetailPage() {
         }
       >
         <div className="space-y-3">
-          {actionError && modal === "cancel" && (
+          {actionError && modal === "cancelPlot" && (
             <div className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">{actionError}</div>
           )}
-          <p>Cancelling releases the plot and starts a refund. Provide a reason for the record.</p>
+          <p>
+            This cancels an already-booked plot for <strong>{booking?.id}</strong>, releasing it back to
+            available and starting a refund.
+          </p>
           <textarea
             rows={3}
             className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm text-text focus:border-gold focus:outline-none"
-            placeholder="Reason for cancellation"
+            placeholder="Note for the record (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />

@@ -17,8 +17,6 @@ import { RefundsPage } from "./features/refunds/RefundsPage";
 import { RevenuePage } from "./features/revenue/RevenuePage";
 import { AuditLogsPage } from "./features/audit/AuditLogsPage";
 import { AdminProfilePage } from "./features/profile/AdminProfilePage";
-import { SettlementsListPage } from "./features/settlements/SettlementsListPage";
-import { SettlementDetailPage } from "./features/settlements/SettlementDetailPage";
 import { HelpPage } from "./features/misc/HelpPage";
 import { NotFoundPage } from "./features/misc/NotFoundPage";
 
@@ -50,8 +48,6 @@ function App() {
         <Route path="bookings/:id" element={<BookingDetailPage />} />
         <Route path="refunds" element={<RefundsPage />} />
         <Route path="revenue" element={<RevenuePage />} />
-        <Route path="broker-settlements" element={<SettlementsListPage />} />
-        <Route path="broker-settlements/:id" element={<SettlementDetailPage />} />
         <Route path="audit" element={<AuditLogsPage />} />
         <Route path="profile" element={<AdminProfilePage />} />
         <Route path="help" element={<HelpPage />} />

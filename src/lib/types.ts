@@ -56,15 +56,6 @@ export type VisitSource = "CUSTOMER" | "BROKER_CHANNEL";
 
 export type PaymentMethod = "ONLINE" | "CASH" | "BANK_TRANSFER" | "OTHER";
 
-export type SettlementStatus =
-  | "PENDING"
-  | "UNDER_REVIEW"
-  | "APPROVED"
-  | "ON_HOLD"
-  | "REJECTED"
-  | "PAID"
-  | "REVERSED";
-
 export interface Customer {
   id: string;
   name: string;
@@ -165,16 +156,4 @@ export interface AuditLogEntry {
   newState?: string;
   timestamp: string;
   requestId: string;
-}
-
-export interface Settlement {
-  id: string;
-  bookingId: string;
-  brokerName: string;
-  project: string;
-  commissionAmount: number;
-  approvedAmount?: number;
-  status: SettlementStatus;
-  createdAt: string;
-  version: number;
 }

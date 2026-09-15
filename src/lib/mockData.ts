@@ -8,7 +8,6 @@ import type {
   Customer,
   Refund,
   RevenueTransaction,
-  Settlement,
   SiteVisit,
 } from "./types";
 
@@ -231,19 +230,3 @@ export const auditLogs: AuditLogEntry[] = [
   { id: "AUD-8960", actor: "Divya Rao", action: "BOOKING_CANCELLED", entity: "Booking", entityId: "BKG-2026-000998", priorState: "APPROVED", newState: "CANCELLED", timestamp: "2026-07-28 05:10 PM", requestId: "req_3b8e77" },
 ];
 
-export const settlements: Settlement[] = [
-  { id: "SET-2026-000245", bookingId: "BKG-2026-001043", brokerName: "Suresh Kulkarni", project: "Green Meadows", commissionAmount: 125_000, approvedAmount: 125_000, status: "APPROVED", createdAt: "2026-09-09", version: 5 },
-  { id: "SET-2026-000241", bookingId: "BKG-2026-001040", brokerName: "Nisha Verma", project: "Palm County", commissionAmount: 156_000, status: "UNDER_REVIEW", createdAt: "2026-08-31", version: 2 },
-  { id: "SET-2026-000238", bookingId: "BKG-2026-001021", brokerName: "Suresh Kulkarni", project: "Sunrise Valley", commissionAmount: 49_000, status: "ON_HOLD", createdAt: "2026-09-01", version: 3 },
-  { id: "SET-2026-000230", bookingId: "BKG-2026-000998", brokerName: "Rajesh Menon", project: "Emerald Hills", commissionAmount: 27_000, status: "REVERSED", createdAt: "2026-07-29", version: 4 },
-  { id: "SET-2026-000225", bookingId: "BKG-2026-000970", brokerName: "Suresh Kulkarni", project: "Green Meadows", commissionAmount: 210_000, approvedAmount: 210_000, status: "PAID", createdAt: "2026-07-15", version: 6 },
-];
-
-export const brokerAccountSummary = {
-  totalEarned: 1_850_000,
-  pendingApproval: 156_000,
-  approvedUnpaid: 125_000,
-  paidThisMonth: 0,
-  lifetimePaid: 1_360_000,
-  onHold: 49_000,
-};

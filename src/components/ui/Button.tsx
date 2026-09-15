@@ -9,7 +9,7 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   secondary: "bg-gold text-white hover:bg-gold-dark",
   outline: "border border-border bg-surface text-text hover:bg-surface-muted",
   ghost: "text-text-muted hover:bg-surface-muted hover:text-text",
-  danger: "bg-[--color-danger] text-white hover:opacity-90",
+  danger: "bg-danger text-white hover:opacity-90",
 };
 
 const SIZE_CLASSES: Record<Size, string> = {

@@ -2,7 +2,6 @@ import { NavLink, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { useAuth } from "../../lib/auth";
 import {
-  IconAudit,
   IconBookings,
   IconBrokers,
   IconCustomers,
@@ -23,7 +22,6 @@ const NAV_ITEMS = [
   { to: "/admin/bookings", label: "Bookings", icon: IconBookings },
   { to: "/admin/revenue", label: "Revenue", icon: IconRevenue },
   { to: "/admin/refunds", label: "Refunds", icon: IconRefunds },
-  { to: "/admin/audit", label: "Audit Logs", icon: IconAudit },
   { to: "/admin/profile", label: "My Profile", icon: IconUser },
 ];
 

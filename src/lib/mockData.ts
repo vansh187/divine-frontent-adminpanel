@@ -5,7 +5,6 @@ import type {
   Booking,
   Broker,
   Customer,
-  Refund,
   RevenueTransaction,
   SiteVisit,
 } from "./types";
@@ -202,14 +201,6 @@ export const bookings: Booking[] = [
       { actor: "Divya Rao", action: "KYC rejected — PAN mismatch", timestamp: "2026-08-24 11:00 AM", note: "PAN name does not match booking profile" },
     ],
   },
-];
-
-export const refunds: Refund[] = [
-  { id: "RFD-5001", bookingId: "BKG-2026-001038", customerName: "Karan Malhotra", amount: 1_650_000, method: "ONLINE", status: "PROCESSING", reason: "KYC rejected — PAN mismatch", requestedAt: "2026-08-24" },
-  { id: "RFD-5002", bookingId: "BKG-2026-001021", customerName: "Ibrahim Qureshi", amount: 980_000, method: "CASH", status: "CASH_REFUND_PENDING", reason: "Customer requested cancellation", requestedAt: "2026-09-02" },
-  { id: "RFD-5003", bookingId: "BKG-2026-001009", customerName: "Ritu Bansal", amount: 2_100_000, method: "ONLINE", status: "COMPLETED", reason: "Duplicate booking cancelled", requestedAt: "2026-08-10" },
-  { id: "RFD-5004", bookingId: "BKG-2026-000998", customerName: "Manoj Tiwari", amount: 540_000, method: "CASH", status: "CASH_COLLECTED", reason: "Site visit dissatisfaction", requestedAt: "2026-07-28" },
-  { id: "RFD-5005", bookingId: "BKG-2026-001051", customerName: "Fatima Ansari", amount: 1_320_000, method: "ONLINE", status: "FAILED", reason: "Gateway declined reversal", requestedAt: "2026-09-05" },
 ];
 
 export const revenueTransactions: RevenueTransaction[] = [

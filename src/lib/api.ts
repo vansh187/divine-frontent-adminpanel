@@ -525,3 +525,87 @@ export function getRevenueTransaction(
 ): Promise<ApiRevenueTransactionDetail> {
   return authRequest<ApiRevenueTransactionDetail>(`/admin/revenue/transactions/${id}`, accessToken);
 }
+
+export type RefundMethod = "razorpay" | "cash" | "rtgs_neft";
+export type RefundStatus =
+  | "processing"
+  | "completed"
+  | "failed"
+  | "cash_refund_pending"
+  | "cash_collected"
+  | "bank_transfer_pending"
+  | "bank_transfer_completed";
+
+export interface ApiRefundListItem {
+  id: string;
+  booking_id: string | null;
+  customer_id: string;
+  customer_name: string | null;
+  project_name: string | null;
+  unit_number: string | null;
+  amount: number;
+  currency: string;
+  method: RefundMethod;
+  status: RefundStatus;
+  refund_initiated_date: string | null;
+  refund_completed_date: string | null;
+}
+
+export interface ApiRefundDetail extends ApiRefundListItem {
+  razorpay_payment_id: string | null;
+  razorpay_refund_id: string | null;
+  utr_number: string | null;
+  refund_note: string | null;
+  created_at: string;
+}
+
+export interface RefundListResponse {
+  items: ApiRefundListItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface RefundListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: RefundStatus;
+  method?: RefundMethod;
+}
+
+export function listRefunds(
+  accessToken: string,
+  params: RefundListParams = {}
+): Promise<RefundListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<RefundListResponse>(`/admin/refunds${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export function getRefund(accessToken: string, paymentId: string): Promise<ApiRefundDetail> {
+  return authRequest<ApiRefundDetail>(`/admin/refunds/${paymentId}`, accessToken);
+}
+
+export function retryRefund(accessToken: string, paymentId: string): Promise<ApiRefundDetail> {
+  return authRequest<ApiRefundDetail>(`/admin/refunds/${paymentId}/retry`, accessToken, {
+    method: "POST",
+  });
+}
+
+export function markRefundCollected(
+  accessToken: string,
+  paymentId: string,
+  note?: string
+): Promise<ApiRefundDetail> {
+  return authRequest<ApiRefundDetail>(`/admin/refunds/${paymentId}/mark-collected`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({ note: note || undefined }),
+  });
+}

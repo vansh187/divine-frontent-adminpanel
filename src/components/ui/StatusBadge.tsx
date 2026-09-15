@@ -45,6 +45,8 @@ const STATUS_TONE: Record<string, Tone> = {
   COMPLETED: "success",
   CASH_REFUND_PENDING: "warning",
   CASH_COLLECTED: "success",
+  BANK_TRANSFER_PENDING: "warning",
+  BANK_TRANSFER_COMPLETED: "success",
   NOT_REQUIRED: "neutral",
   // Visit
   SCHEDULED: "info",

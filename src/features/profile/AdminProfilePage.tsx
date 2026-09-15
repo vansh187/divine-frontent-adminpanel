@@ -106,26 +106,15 @@ export function AdminProfilePage() {
       {admin && (
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
           <Card className="flex flex-col items-center gap-4 p-6 text-center">
-            <div className="relative">
-              {admin.avatarUrl ? (
-                <img
-                  src={admin.avatarUrl}
-                  alt={admin.fullName}
-                  className="h-32 w-32 rounded-full border-4 border-surface object-cover shadow-md"
-                />
-              ) : (
-                <Avatar name={admin.fullName || admin.email} className="h-32 w-32 text-3xl" />
-              )}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="absolute bottom-1 right-1 flex h-9 w-9 items-center justify-center rounded-full bg-gold text-white shadow-md hover:bg-gold-dark disabled:opacity-50"
-                aria-label="Upload photo"
-              >
-                <IconCamera className="h-4 w-4" />
-              </button>
-            </div>
+            {admin.avatarUrl ? (
+              <img
+                src={admin.avatarUrl}
+                alt={admin.fullName}
+                className="h-32 w-32 rounded-full border-4 border-surface object-cover shadow-md"
+              />
+            ) : (
+              <Avatar name={admin.fullName || admin.email} className="h-32 w-32 text-3xl" />
+            )}
 
             <input
               ref={fileInputRef}

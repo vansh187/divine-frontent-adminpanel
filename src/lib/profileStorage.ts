@@ -1,8 +1,6 @@
 export interface ProfileOverrides {
   fullName?: string;
   phone?: string;
-  designation?: string;
-  department?: string;
 }
 
 export class ProfileStorageError extends Error {}

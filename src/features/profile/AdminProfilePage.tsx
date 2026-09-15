@@ -24,8 +24,6 @@ export function AdminProfilePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [fullName, setFullName] = useState(admin?.fullName ?? "");
   const [phone, setPhone] = useState(admin?.phone ?? "");
-  const [designation, setDesignation] = useState(admin?.designation ?? "");
-  const [department, setDepartment] = useState(admin?.department ?? "");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -43,8 +41,6 @@ export function AdminProfilePage() {
     if (!admin) return;
     setFullName(admin.fullName ?? "");
     setPhone(admin.phone ?? "");
-    setDesignation(admin.designation ?? "");
-    setDepartment(admin.department ?? "");
     setFieldErrors({});
     setDetailsError(null);
     setIsEditing(true);
@@ -54,8 +50,6 @@ export function AdminProfilePage() {
     if (!admin) return;
     setFullName(admin.fullName ?? "");
     setPhone(admin.phone ?? "");
-    setDesignation(admin.designation ?? "");
-    setDepartment(admin.department ?? "");
     setFieldErrors({});
     setDetailsError(null);
     setIsEditing(false);
@@ -118,8 +112,6 @@ export function AdminProfilePage() {
       updateProfile({
         fullName: fullName.trim(),
         phone: phone.trim(),
-        designation: designation.trim(),
-        department: department.trim(),
       });
       setDetailsError(null);
       setIsEditing(false);
@@ -242,22 +234,6 @@ export function AdminProfilePage() {
                 placeholder="+91 98765 43210"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                disabled={!isEditing}
-                className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
-              />
-              <TextField
-                label="Designation"
-                placeholder="Operations Manager"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                disabled={!isEditing}
-                className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
-              />
-              <TextField
-                label="Department"
-                placeholder="Sales & Leasing"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
                 disabled={!isEditing}
                 className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
               />

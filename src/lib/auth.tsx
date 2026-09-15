@@ -27,8 +27,6 @@ interface AuthAdmin {
   fullName?: string;
   employeeId?: string;
   phone?: string;
-  designation?: string;
-  department?: string;
   avatarUrl: string | null;
 }
 
@@ -72,8 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fullName,
       employeeId,
       phone: overrides.phone,
-      designation: overrides.designation,
-      department: overrides.department,
       avatarUrl: getStoredAvatar(email),
     };
     // profileVersion bumps force this memo to re-read localStorage after edits.

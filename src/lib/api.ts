@@ -182,6 +182,20 @@ export function uploadAdminProfilePhoto(accessToken: string, file: File): Promis
   return authUploadRequest<ApiAdminProfile>("/admin/profile/photo", accessToken, formData);
 }
 
+export interface SupportTicketPayload {
+  subject: string;
+  description: string;
+}
+
+// Endpoint path is provisional pending backend confirmation. Submitting is expected
+// to email the dev team with the ticket subject/description.
+export function submitSupportTicket(accessToken: string, payload: SupportTicketPayload): Promise<void> {
+  return authRequest<void>("/admin/support-tickets", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export type CustomerSource = "WEBSITE" | "BROKER_CHANNEL";
 export type CustomerStatus = "LEAD" | "ACTIVE" | "BOOKED" | "INACTIVE";
 

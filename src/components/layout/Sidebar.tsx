@@ -11,7 +11,6 @@ import {
   IconLogout,
   IconRefunds,
   IconRevenue,
-  IconSettlements,
   IconUser,
   IconVisits,
 } from "./icons";
@@ -22,9 +21,8 @@ const NAV_ITEMS = [
   { to: "/admin/brokers", label: "Channel Partners", icon: IconBrokers },
   { to: "/admin/site-visits", label: "Site Visits", icon: IconVisits },
   { to: "/admin/bookings", label: "Bookings", icon: IconBookings },
-  { to: "/admin/refunds", label: "Refunds", icon: IconRefunds },
   { to: "/admin/revenue", label: "Revenue", icon: IconRevenue },
-  { to: "/admin/broker-settlements", label: "Channel Partner Settlements", icon: IconSettlements },
+  { to: "/admin/refunds", label: "Refunds", icon: IconRefunds },
   { to: "/admin/audit", label: "Audit Logs", icon: IconAudit },
   { to: "/admin/profile", label: "My Profile", icon: IconUser },
 ];

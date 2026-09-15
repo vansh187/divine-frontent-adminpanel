@@ -36,7 +36,7 @@ export function AuthLayout({
             <span className="text-gold-light">Possibilities</span>
           </p>
           <p className="mt-4 max-w-sm text-sm text-white/60">
-            Together we build a better tomorrow. Manage bookings, KYC and settlements from one
+            Together we build a better tomorrow. Manage bookings, KYC and revenue from one
             trusted admin workspace.
           </p>
         </div>

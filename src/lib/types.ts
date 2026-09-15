@@ -74,18 +74,6 @@ export interface Broker {
   joinedAt: string;
 }
 
-export interface SiteVisit {
-  id: string;
-  customerName: string;
-  project: string;
-  plot: string;
-  source: VisitSource;
-  brokerName?: string;
-  scheduledAt: string;
-  status: VisitStatus;
-  assignedTo: string;
-}
-
 export interface Document {
   id: string;
   name: string;

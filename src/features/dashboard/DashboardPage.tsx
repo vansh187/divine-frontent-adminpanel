@@ -12,21 +12,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useNavigate } from "react-router-dom";
 import { ChartCard } from "../../components/charts/ChartCard";
 import { Avatar } from "../../components/ui/Avatar";
 import { Card } from "../../components/ui/Card";
 import { StatCard } from "../../components/ui/StatCard";
-import { listBrokers, listCustomers } from "../../lib/api";
+import { ApiError, listBrokers, listCustomers, listVisits, type ApiVisit } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatCompactCurrency } from "../../lib/format";
-import {
-  bookingFunnel,
-  customerBrokerTrend,
-  dashboardSummary,
-  revenueTrend,
-  siteVisitTrend,
-  siteVisits,
-} from "../../lib/mockData";
+import { deriveStatus, projectLabel, scheduleLabel, visitTimestamp } from "../../lib/siteVisitDisplay";
+import { bookingFunnel, customerBrokerTrend, dashboardSummary, revenueTrend, siteVisitTrend } from "../../lib/mockData";
+
+const UPCOMING_VISITS_LIMIT = 4;
+const UPCOMING_VISITS_WINDOW_DAYS = 2;
 
 const GOLD = "#b8894f";
 const GOLD_LIGHT = "#d9b27c";
@@ -35,9 +33,14 @@ const FUNNEL_COLORS = ["#b8894f", "#c98a2c", "#2f9e6a", "#c85c4a", "#8a8172"];
 
 export function DashboardPage() {
   const { accessToken, admin } = useAuth();
+  const navigate = useNavigate();
   const [customersTotal, setCustomersTotal] = useState<number | null>(null);
   const [brokersTotal, setBrokersTotal] = useState<number | null>(null);
   const [countsError, setCountsError] = useState(false);
+
+  const [upcomingVisits, setUpcomingVisits] = useState<ApiVisit[]>([]);
+  const [visitsLoading, setVisitsLoading] = useState(true);
+  const [visitsError, setVisitsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -69,6 +72,50 @@ export function DashboardPage() {
       cancelled = true;
     };
   }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    setVisitsLoading(true);
+    setVisitsError(null);
+
+    listVisits(accessToken, { page: 1, page_size: 50, sort: "visit_date" })
+      .then((res) => {
+        if (cancelled) return;
+
+        const rangeStart = new Date();
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(rangeStart);
+        rangeEnd.setDate(rangeEnd.getDate() + UPCOMING_VISITS_WINDOW_DAYS);
+
+        const upcoming = res.items
+          .filter((v) => {
+            if (deriveStatus(v) !== "scheduled" || !v.visit_date) return false;
+            const date = new Date(v.visit_date);
+            return !Number.isNaN(date.getTime()) && date >= rangeStart && date < rangeEnd;
+          })
+          .sort((a, b) => visitTimestamp(a) - visitTimestamp(b))
+          .slice(0, UPCOMING_VISITS_LIMIT);
+
+        setUpcomingVisits(upcoming);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setVisitsError(err instanceof ApiError ? err.message : "Failed to load upcoming site visits.");
+      })
+      .finally(() => {
+        if (!cancelled) setVisitsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  function openVisit(visit: ApiVisit) {
+    sessionStorage.setItem(`dvi_visit_${visit.id}`, JSON.stringify(visit));
+    navigate(`/admin/site-visits/${visit.id}`, { state: { visit } });
+  }
 
   return (
     <div className="space-y-6">
@@ -178,24 +225,48 @@ export function DashboardPage() {
       <Card className="p-5">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-bold text-text">Upcoming Site Visits</h3>
-          <button className="text-xs font-semibold text-gold-dark hover:underline">View All</button>
+          <button
+            onClick={() => navigate("/admin/site-visits")}
+            className="text-xs font-semibold text-gold-dark hover:underline"
+          >
+            View All
+          </button>
         </div>
-        <div className="space-y-3">
-          {siteVisits.slice(0, 4).map((visit) => (
-            <div key={visit.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
-              <div className="flex items-center gap-3">
-                <Avatar name={visit.customerName} />
-                <div>
-                  <p className="text-sm font-semibold text-text">{visit.customerName}</p>
-                  <p className="text-xs text-text-muted">
-                    {visit.project} - Plot {visit.plot}
-                  </p>
+
+        {visitsLoading && <p className="py-6 text-center text-sm text-text-muted">Loading site visits...</p>}
+
+        {!visitsLoading && visitsError && (
+          <p className="py-6 text-center text-sm text-text-muted">{visitsError}</p>
+        )}
+
+        {!visitsLoading && !visitsError && (
+          <div className="space-y-3">
+            {upcomingVisits.map((visit) => (
+              <div
+                key={visit.id}
+                onClick={() => openVisit(visit)}
+                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border p-3 hover:bg-surface-muted"
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar name={visit.customer_name} />
+                  <div>
+                    <p className="text-sm font-semibold text-text">{visit.customer_name}</p>
+                    <p className="text-xs text-text-muted">
+                      {projectLabel(visit.project_name)}
+                      {visit.plot_number ? ` - Plot ${visit.plot_number}` : ""}
+                    </p>
+                  </div>
                 </div>
+                <p className="text-xs font-medium text-text-muted">{scheduleLabel(visit)}</p>
               </div>
-              <p className="text-xs font-medium text-text-muted">{visit.scheduledAt}</p>
-            </div>
-          ))}
-        </div>
+            ))}
+            {upcomingVisits.length === 0 && (
+              <p className="py-6 text-center text-sm text-text-muted">
+                No site visits scheduled in the next {UPCOMING_VISITS_WINDOW_DAYS} days.
+              </p>
+            )}
+          </div>
+        )}
       </Card>
     </div>
   );

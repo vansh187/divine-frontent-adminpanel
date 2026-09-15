@@ -3,9 +3,10 @@ import { useLocation, useParams } from "react-router-dom";
 import { BackLink } from "../../components/ui/BackLink";
 import { Card } from "../../components/ui/Card";
 import { StatusBadge } from "../../components/ui/StatusBadge";
-import { ApiError, getVisit, type ApiVisit, type BrokerProject } from "../../lib/api";
+import { ApiError, getVisit, type ApiVisit } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { formatDate, formatDateTime } from "../../lib/format";
+import { formatDateTime } from "../../lib/format";
+import { deriveStatus, projectLabel, scheduleLabel } from "../../lib/siteVisitDisplay";
 
 interface VisitRouteState {
   visit?: ApiVisit;
@@ -25,30 +26,6 @@ function readCachedVisit(id: string | undefined) {
 
 function visitDisplayId(id: string) {
   return `VS${id.slice(-5).toUpperCase()}`;
-}
-
-function projectLabel(project: BrokerProject | null) {
-  if (project === "suraksha-enclave") return "Suraksha Enclave";
-  if (project === "ops-divine-greens") return "Ops Divine Greens";
-  return "-";
-}
-
-function deriveStatus(v: ApiVisit) {
-  if (v.status === "cancelled") return "cancelled";
-  const date = v.visit_date ? new Date(v.visit_date) : null;
-  if (date && !Number.isNaN(date.getTime())) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (date < today) return "completed";
-  }
-  return "scheduled";
-}
-
-function scheduleLabel(v: ApiVisit) {
-  if (v.status === "requested" || !v.visit_time || !v.visit_date) {
-    return v.preferred_window ? `Requested · ${v.preferred_window}` : "Awaiting confirmation";
-  }
-  return `${formatDate(v.visit_date)} · ${v.visit_time}`;
 }
 
 export function SiteVisitDetailPage() {

@@ -6,7 +6,6 @@ import type {
   Broker,
   Customer,
   RevenueTransaction,
-  SiteVisit,
 } from "./types";
 
 export const dashboardSummary = {
@@ -77,16 +76,6 @@ export const brokers: Broker[] = [
   { id: "BRK-000129", name: "NishaVerma", agency: "Verma Estates", email: "nisha.verma@vestates.com", phone: "+91 99887 00112", status: "ACTIVE", leadsSourced: 51, siteVisitsSourced: 39, bookingsConverted: 9, commissionEarned: 1_420_000, commissionPending: 180_000, joinedAt: "2026-01-20" },
   { id: "BRK-000130", name: "Rajesh Menon", agency: "Menon & Co Properties", email: "rajesh.menon@menonco.com", phone: "+91 90556 22334", status: "ACTIVE", leadsSourced: 38, siteVisitsSourced: 27, bookingsConverted: 6, commissionEarned: 890_000, commissionPending: 95_000, joinedAt: "2026-02-08" },
   { id: "BRK-000131", name: "Farida Sheikh", agency: "Sheikh Housing Advisors", email: "farida.sheikh@sha.com", phone: "+91 91778 55443", status: "INACTIVE", leadsSourced: 22, siteVisitsSourced: 14, bookingsConverted: 3, commissionEarned: 410_000, commissionPending: 0, joinedAt: "2025-09-30" },
-];
-
-export const siteVisits: SiteVisit[] = [
-  { id: "VIS-3001", customerName: "Rehan Sharma", project: "Green Meadows", plot: "A-112", source: "CUSTOMER", scheduledAt: "2026-09-12 10:00 AM", status: "SCHEDULED", assignedTo: "Arjun Mehta" },
-  { id: "VIS-3002", customerName: "Priya Nair", project: "Sunrise Valley", plot: "C-204", source: "BROKER_CHANNEL", brokerName: "Nisha Verma", scheduledAt: "2026-09-12 12:30 PM", status: "CONFIRMED", assignedTo: "Divya Rao" },
-  { id: "VIS-3003", customerName: "Karan Malhotra", project: "Emerald Hills", plot: "B-018", source: "CUSTOMER", scheduledAt: "2026-09-11 04:00 PM", status: "COMPLETED", assignedTo: "Arjun Mehta" },
-  { id: "VIS-3004", customerName: "Vikram Chauhan", project: "Palm County", plot: "D-091", source: "BROKER_CHANNEL", brokerName: "Suresh Kulkarni", scheduledAt: "2026-09-10 11:00 AM", status: "FOLLOW_UP_REQUIRED", assignedTo: "Divya Rao" },
-  { id: "VIS-3005", customerName: "Sneha Reddy", project: "Sunrise Valley", plot: "C-110", source: "CUSTOMER", scheduledAt: "2026-09-09 03:00 PM", status: "NO_SHOW", assignedTo: "Arjun Mehta" },
-  { id: "VIS-3006", customerName: "Ananya Iyer", project: "Green Meadows", plot: "A-045", source: "CUSTOMER", scheduledAt: "2026-09-08 09:30 AM", status: "CONVERTED", assignedTo: "Divya Rao" },
-  { id: "VIS-3007", customerName: "Meera Pillai", project: "Palm County", plot: "D-033", source: "BROKER_CHANNEL", brokerName: "Suresh Kulkarni", scheduledAt: "2026-09-07 02:00 PM", status: "CANCELLED", assignedTo: "Arjun Mehta" },
 ];
 
 export const bookings: Booking[] = [

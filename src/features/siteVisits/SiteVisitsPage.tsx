@@ -6,37 +6,13 @@ import { SearchInput } from "../../components/ui/SearchInput";
 import { Select } from "../../components/ui/Select";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { Table, Td, Th, THead, Tr } from "../../components/ui/Table";
-import { ApiError, listVisits, type ApiVisit, type BrokerProject, type VisitOriginType } from "../../lib/api";
+import { ApiError, listVisits, type ApiVisit, type VisitOriginType } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { formatDate } from "../../lib/format";
+import { deriveStatus, projectLabel, scheduleLabel, type VisitDisplayStatus } from "../../lib/siteVisitDisplay";
 
 const PAGE_SIZE = 20;
 
-type DisplayStatus = "scheduled" | "completed" | "cancelled";
-
-function projectLabel(project: BrokerProject | null) {
-  if (project === "suraksha-enclave") return "Suraksha Enclave";
-  if (project === "ops-divine-greens") return "Ops Divine Greens";
-  return "—";
-}
-
-function deriveStatus(v: ApiVisit): DisplayStatus {
-  if (v.status === "cancelled") return "cancelled";
-  const date = v.visit_date ? new Date(v.visit_date) : null;
-  if (date && !Number.isNaN(date.getTime())) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (date < today) return "completed";
-  }
-  return "scheduled";
-}
-
-function scheduleLabel(v: ApiVisit) {
-  if (v.status === "requested" || !v.visit_time || !v.visit_date) {
-    return v.preferred_window ? `Requested · ${v.preferred_window}` : "Awaiting confirmation";
-  }
-  return `${formatDate(v.visit_date)} · ${v.visit_time}`;
-}
+type DisplayStatus = VisitDisplayStatus;
 
 export function SiteVisitsPage() {
   const { accessToken } = useAuth();

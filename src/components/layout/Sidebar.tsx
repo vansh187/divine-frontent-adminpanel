@@ -103,6 +103,17 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () =
         <p className="text-sm font-semibold text-gold-light">Building Better Tomorrows</p>
         <p className="mt-1 text-xs text-white/50">Divine Vision Infra Admin Panel</p>
       </div>
+
+      <div className="px-6 pb-4">
+        <a
+          href="https://www.webneststudio.co.in"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-white/40 transition-colors hover:text-gold-light"
+        >
+          Built by WebNest Studio
+        </a>
+      </div>
     </aside>
   );
 }

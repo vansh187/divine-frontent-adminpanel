@@ -65,14 +65,6 @@ export const IconRevenue = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-export const IconAudit = (props: SVGProps<SVGSVGElement>) => (
-  <svg {...base} {...props}>
-    <path d="M7 3h8l4 4v14H7z" />
-    <path d="M15 3v4h4" />
-    <path d="M9.5 12h5M9.5 15.5h5M9.5 8.5h2" />
-  </svg>
-);
-
 export const IconHelp = (props: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...props}>
     <circle cx="12" cy="12" r="9" />

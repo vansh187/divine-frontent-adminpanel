@@ -145,15 +145,3 @@ export interface RevenueTransaction {
   status: PaymentStatus;
   date: string;
 }
-
-export interface AuditLogEntry {
-  id: string;
-  actor: string;
-  action: string;
-  entity: string;
-  entityId: string;
-  priorState?: string;
-  newState?: string;
-  timestamp: string;
-  requestId: string;
-}

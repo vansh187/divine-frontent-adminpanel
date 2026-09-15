@@ -2,7 +2,6 @@
 // Every value here will be replaced by live API responses once the backend
 // endpoints listed in the HLD (§9 API Endpoint Wiring Matrix) are wired up.
 import type {
-  AuditLogEntry,
   Booking,
   Broker,
   Customer,
@@ -219,14 +218,5 @@ export const revenueTransactions: RevenueTransaction[] = [
   { id: "TXN-88045", bookingId: "BKG-2026-001044", customerName: "Ananya Iyer", project: "Green Meadows", amount: 1_980_000, method: "ONLINE", status: "CAPTURED", date: "2026-09-09" },
   { id: "TXN-87990", bookingId: "BKG-2026-001021", customerName: "Ibrahim Qureshi", project: "Sunrise Valley", amount: 980_000, method: "CASH", status: "CASH_RECORDED", date: "2026-09-01" },
   { id: "TXN-87960", bookingId: "BKG-2026-001009", customerName: "Ritu Bansal", project: "Emerald Hills", amount: 2_100_000, method: "ONLINE", status: "REFUNDED", date: "2026-08-09" },
-];
-
-export const auditLogs: AuditLogEntry[] = [
-  { id: "AUD-9001", actor: "Arjun Mehta", action: "BOOKING_APPROVED", entity: "Booking", entityId: "BKG-2026-001040", priorState: "UNDER_REVIEW", newState: "APPROVED", timestamp: "2026-08-31 09:16 AM", requestId: "req_7f2a1c" },
-  { id: "AUD-9000", actor: "Arjun Mehta", action: "KYC_VERIFIED", entity: "Document", entityId: "DOC-8", priorState: "PENDING", newState: "VERIFIED", timestamp: "2026-08-31 09:15 AM", requestId: "req_6e1b0a" },
-  { id: "AUD-8998", actor: "Divya Rao", action: "KYC_REJECTED", entity: "Document", entityId: "DOC-10", priorState: "PENDING", newState: "REJECTED", timestamp: "2026-08-24 11:00 AM", requestId: "req_5d0a99" },
-  { id: "AUD-8990", actor: "System", action: "REFUND_INITIATED", entity: "Refund", entityId: "RFD-5001", priorState: "NOT_REQUIRED", newState: "PENDING", timestamp: "2026-08-24 11:01 AM", requestId: "req_5d0a9a" },
-  { id: "AUD-8975", actor: "Arjun Mehta", action: "SETTLEMENT_APPROVED", entity: "Settlement", entityId: "SET-2026-000245", priorState: "UNDER_REVIEW", newState: "APPROVED", timestamp: "2026-08-20 02:30 PM", requestId: "req_4c9f88" },
-  { id: "AUD-8960", actor: "Divya Rao", action: "BOOKING_CANCELLED", entity: "Booking", entityId: "BKG-2026-000998", priorState: "APPROVED", newState: "CANCELLED", timestamp: "2026-07-28 05:10 PM", requestId: "req_3b8e77" },
 ];
 

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as api from "./api";
 import {
   getProfileOverrides,
@@ -102,6 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setEmail(null);
   }, []);
+
+  // Any authenticated request that comes back 401 (expired/invalid token) logs the
+  // admin out here; ProtectedRoute then redirects to /admin/login on the next render.
+  useEffect(() => {
+    api.setUnauthorizedHandler(logout);
+    return () => api.setUnauthorizedHandler(null);
+  }, [logout]);
 
   const updateProfile = useCallback(
     (patch: ProfileOverrides) => {

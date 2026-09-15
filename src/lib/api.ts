@@ -103,6 +103,14 @@ export function resetPassword(payload: {
   });
 }
 
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+/** Registered once by AuthProvider so a 401 on any authenticated request can trigger logout + redirect. */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
+}
+
 export function authRequest<T>(
   path: string,
   accessToken: string,
@@ -114,6 +122,15 @@ export function authRequest<T>(
       ...options.headers,
       Authorization: `Bearer ${accessToken}`,
     },
+  }).catch((err) => {
+    if (err instanceof ApiError && err.status === 401) {
+      unauthorizedHandler?.();
+      // Session is being torn down and the app is about to redirect to
+      // /admin/login — never resolve so callers don't briefly render a
+      // stale error state before the redirect unmounts them.
+      return new Promise<T>(() => {});
+    }
+    throw err;
   });
 }
 

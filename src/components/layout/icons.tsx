@@ -107,12 +107,3 @@ export const IconCamera = (props: SVGProps<SVGSVGElement>) => (
     <circle cx="12" cy="14" r="3.4" />
   </svg>
 );
-
-export const IconTrash = (props: SVGProps<SVGSVGElement>) => (
-  <svg {...base} {...props}>
-    <path d="M4 7h16" />
-    <path d="M9 7V4.5A1.5 1.5 0 0110.5 3h3A1.5 1.5 0 0115 4.5V7" />
-    <path d="M6 7l1 13a1.5 1.5 0 001.5 1.4h7A1.5 1.5 0 0017 20l1-13" />
-    <path d="M10 11v6M14 11v6" />
-  </svg>
-);

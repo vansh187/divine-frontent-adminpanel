@@ -33,16 +33,6 @@ export type PaymentStatus =
   | "PARTIALLY_REFUNDED"
   | "REFUNDED";
 
-export type RefundStatus =
-  | "NOT_REQUIRED"
-  | "PENDING"
-  | "INITIATED"
-  | "PROCESSING"
-  | "COMPLETED"
-  | "FAILED"
-  | "CASH_REFUND_PENDING"
-  | "CASH_COLLECTED";
-
 export type VisitStatus =
   | "SCHEDULED"
   | "CONFIRMED"
@@ -84,18 +74,6 @@ export interface Broker {
   joinedAt: string;
 }
 
-export interface SiteVisit {
-  id: string;
-  customerName: string;
-  project: string;
-  plot: string;
-  source: VisitSource;
-  brokerName?: string;
-  scheduledAt: string;
-  status: VisitStatus;
-  assignedTo: string;
-}
-
 export interface Document {
   id: string;
   name: string;
@@ -122,17 +100,6 @@ export interface Booking {
   version: number;
   createdAt: string;
   decisionHistory: { actor: string; action: string; timestamp: string; note?: string }[];
-}
-
-export interface Refund {
-  id: string;
-  bookingId: string;
-  customerName: string;
-  amount: number;
-  method: PaymentMethod;
-  status: RefundStatus;
-  reason: string;
-  requestedAt: string;
 }
 
 export interface RevenueTransaction {

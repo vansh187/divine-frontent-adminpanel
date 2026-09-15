@@ -5,64 +5,8 @@ import type {
   Booking,
   Broker,
   Customer,
-  Refund,
   RevenueTransaction,
-  SiteVisit,
 } from "./types";
-
-export const currentAdmin = {
-  id: "adm_101",
-  name: "Arjun Mehta",
-  email: "arjun.mehta@divinevisioninfra.com",
-  roles: ["SUPER_ADMIN"],
-  initials: "AM",
-};
-
-export const dashboardSummary = {
-  customers_total: 1482,
-  brokers_total: 186,
-  pending_kyc: 23,
-  approved_bookings: 117,
-  refunds_in_progress: 4,
-  gross_received: 41_800_000,
-  approved_revenue: 35_200_000,
-  refunded_amount: 1_250_000,
-};
-
-export const customerBrokerTrend = [
-  { month: "Apr", customers: 88, brokers: 12 },
-  { month: "May", customers: 102, brokers: 15 },
-  { month: "Jun", customers: 96, brokers: 11 },
-  { month: "Jul", customers: 128, brokers: 19 },
-  { month: "Aug", customers: 145, brokers: 22 },
-  { month: "Sep", customers: 133, brokers: 17 },
-];
-
-export const siteVisitTrend = [
-  { month: "Apr", customer: 60, broker: 28 },
-  { month: "May", customer: 72, broker: 34 },
-  { month: "Jun", customer: 65, broker: 30 },
-  { month: "Jul", customer: 84, broker: 41 },
-  { month: "Aug", customer: 96, broker: 47 },
-  { month: "Sep", customer: 89, broker: 39 },
-];
-
-export const revenueTrend = [
-  { month: "Apr", revenue: 4_200_000 },
-  { month: "May", revenue: 5_100_000 },
-  { month: "Jun", revenue: 4_650_000 },
-  { month: "Jul", revenue: 6_300_000 },
-  { month: "Aug", revenue: 7_450_000 },
-  { month: "Sep", revenue: 6_900_000 },
-];
-
-export const bookingFunnel = [
-  { stage: "Payment Received", value: 312 },
-  { stage: "KYC Pending", value: 254 },
-  { stage: "Approved", value: 117 },
-  { stage: "Rejected", value: 38 },
-  { stage: "Cancelled / Refunded", value: 21 },
-];
 
 export const todaySchedule = [
   { time: "10:00 AM", title: "Site Visit — Green Meadows", subtitle: "With Mr. Rehan Sharma", tag: "Upcoming" },
@@ -86,16 +30,6 @@ export const brokers: Broker[] = [
   { id: "BRK-000129", name: "NishaVerma", agency: "Verma Estates", email: "nisha.verma@vestates.com", phone: "+91 99887 00112", status: "ACTIVE", leadsSourced: 51, siteVisitsSourced: 39, bookingsConverted: 9, commissionEarned: 1_420_000, commissionPending: 180_000, joinedAt: "2026-01-20" },
   { id: "BRK-000130", name: "Rajesh Menon", agency: "Menon & Co Properties", email: "rajesh.menon@menonco.com", phone: "+91 90556 22334", status: "ACTIVE", leadsSourced: 38, siteVisitsSourced: 27, bookingsConverted: 6, commissionEarned: 890_000, commissionPending: 95_000, joinedAt: "2026-02-08" },
   { id: "BRK-000131", name: "Farida Sheikh", agency: "Sheikh Housing Advisors", email: "farida.sheikh@sha.com", phone: "+91 91778 55443", status: "INACTIVE", leadsSourced: 22, siteVisitsSourced: 14, bookingsConverted: 3, commissionEarned: 410_000, commissionPending: 0, joinedAt: "2025-09-30" },
-];
-
-export const siteVisits: SiteVisit[] = [
-  { id: "VIS-3001", customerName: "Rehan Sharma", project: "Green Meadows", plot: "A-112", source: "CUSTOMER", scheduledAt: "2026-09-12 10:00 AM", status: "SCHEDULED", assignedTo: "Arjun Mehta" },
-  { id: "VIS-3002", customerName: "Priya Nair", project: "Sunrise Valley", plot: "C-204", source: "BROKER_CHANNEL", brokerName: "Nisha Verma", scheduledAt: "2026-09-12 12:30 PM", status: "CONFIRMED", assignedTo: "Divya Rao" },
-  { id: "VIS-3003", customerName: "Karan Malhotra", project: "Emerald Hills", plot: "B-018", source: "CUSTOMER", scheduledAt: "2026-09-11 04:00 PM", status: "COMPLETED", assignedTo: "Arjun Mehta" },
-  { id: "VIS-3004", customerName: "Vikram Chauhan", project: "Palm County", plot: "D-091", source: "BROKER_CHANNEL", brokerName: "Suresh Kulkarni", scheduledAt: "2026-09-10 11:00 AM", status: "FOLLOW_UP_REQUIRED", assignedTo: "Divya Rao" },
-  { id: "VIS-3005", customerName: "Sneha Reddy", project: "Sunrise Valley", plot: "C-110", source: "CUSTOMER", scheduledAt: "2026-09-09 03:00 PM", status: "NO_SHOW", assignedTo: "Arjun Mehta" },
-  { id: "VIS-3006", customerName: "Ananya Iyer", project: "Green Meadows", plot: "A-045", source: "CUSTOMER", scheduledAt: "2026-09-08 09:30 AM", status: "CONVERTED", assignedTo: "Divya Rao" },
-  { id: "VIS-3007", customerName: "Meera Pillai", project: "Palm County", plot: "D-033", source: "BROKER_CHANNEL", brokerName: "Suresh Kulkarni", scheduledAt: "2026-09-07 02:00 PM", status: "CANCELLED", assignedTo: "Arjun Mehta" },
 ];
 
 export const bookings: Booking[] = [
@@ -202,14 +136,6 @@ export const bookings: Booking[] = [
       { actor: "Divya Rao", action: "KYC rejected — PAN mismatch", timestamp: "2026-08-24 11:00 AM", note: "PAN name does not match booking profile" },
     ],
   },
-];
-
-export const refunds: Refund[] = [
-  { id: "RFD-5001", bookingId: "BKG-2026-001038", customerName: "Karan Malhotra", amount: 1_650_000, method: "ONLINE", status: "PROCESSING", reason: "KYC rejected — PAN mismatch", requestedAt: "2026-08-24" },
-  { id: "RFD-5002", bookingId: "BKG-2026-001021", customerName: "Ibrahim Qureshi", amount: 980_000, method: "CASH", status: "CASH_REFUND_PENDING", reason: "Customer requested cancellation", requestedAt: "2026-09-02" },
-  { id: "RFD-5003", bookingId: "BKG-2026-001009", customerName: "Ritu Bansal", amount: 2_100_000, method: "ONLINE", status: "COMPLETED", reason: "Duplicate booking cancelled", requestedAt: "2026-08-10" },
-  { id: "RFD-5004", bookingId: "BKG-2026-000998", customerName: "Manoj Tiwari", amount: 540_000, method: "CASH", status: "CASH_COLLECTED", reason: "Site visit dissatisfaction", requestedAt: "2026-07-28" },
-  { id: "RFD-5005", bookingId: "BKG-2026-001051", customerName: "Fatima Ansari", amount: 1_320_000, method: "ONLINE", status: "FAILED", reason: "Gateway declined reversal", requestedAt: "2026-09-05" },
 ];
 
 export const revenueTransactions: RevenueTransaction[] = [

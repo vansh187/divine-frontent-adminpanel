@@ -13,15 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
+async function parseResponse<T>(res: Response): Promise<T> {
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const body = isJson ? await res.json().catch(() => null) : null;
 
@@ -36,6 +28,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   return body as T;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+  return parseResponse<T>(res);
 }
 
 export interface AdminUser {
@@ -111,18 +114,8 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   unauthorizedHandler = handler;
 }
 
-export function authRequest<T>(
-  path: string,
-  accessToken: string,
-  options: RequestInit = {}
-): Promise<T> {
-  return request<T>(path, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  }).catch((err) => {
+function handleUnauthorized<T>(promise: Promise<T>): Promise<T> {
+  return promise.catch((err) => {
     if (err instanceof ApiError && err.status === 401) {
       unauthorizedHandler?.();
       // Session is being torn down and the app is about to redirect to
@@ -131,6 +124,75 @@ export function authRequest<T>(
       return new Promise<T>(() => {});
     }
     throw err;
+  });
+}
+
+export function authRequest<T>(
+  path: string,
+  accessToken: string,
+  options: RequestInit = {}
+): Promise<T> {
+  return handleUnauthorized(
+    request<T>(path, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+  );
+}
+
+/** Like authRequest, but for multipart/form-data bodies — never sets a JSON Content-Type. */
+export function authUploadRequest<T>(
+  path: string,
+  accessToken: string,
+  formData: FormData
+): Promise<T> {
+  return handleUnauthorized(
+    fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: formData,
+    }).then((res) => parseResponse<T>(res))
+  );
+}
+
+export interface ApiAdminProfile {
+  id: string;
+  full_name: string;
+  employee_id: string;
+  email: string;
+  phone: string | null;
+  avatar_url: string | null;
+  initials: string;
+  created_by: string | null;
+  created_date: string | null;
+  last_updated_by: string | null;
+  last_updated_date: string | null;
+}
+
+export function getAdminProfile(accessToken: string): Promise<ApiAdminProfile> {
+  return authRequest<ApiAdminProfile>("/admin/profile", accessToken);
+}
+
+export function uploadAdminProfilePhoto(accessToken: string, file: File): Promise<ApiAdminProfile> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return authUploadRequest<ApiAdminProfile>("/admin/profile/photo", accessToken, formData);
+}
+
+export interface SupportTicketPayload {
+  subject: string;
+  description: string;
+}
+
+// Endpoint path is provisional pending backend confirmation. Submitting is expected
+// to email the dev team with the ticket subject/description.
+export function submitSupportTicket(accessToken: string, payload: SupportTicketPayload): Promise<void> {
+  return authRequest<void>("/admin/support-tickets", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -524,4 +586,88 @@ export function getRevenueTransaction(
   id: string
 ): Promise<ApiRevenueTransactionDetail> {
   return authRequest<ApiRevenueTransactionDetail>(`/admin/revenue/transactions/${id}`, accessToken);
+}
+
+export type RefundMethod = "razorpay" | "cash" | "rtgs_neft";
+export type RefundStatus =
+  | "processing"
+  | "completed"
+  | "failed"
+  | "cash_refund_pending"
+  | "cash_collected"
+  | "bank_transfer_pending"
+  | "bank_transfer_completed";
+
+export interface ApiRefundListItem {
+  id: string;
+  booking_id: string | null;
+  customer_id: string;
+  customer_name: string | null;
+  project_name: string | null;
+  unit_number: string | null;
+  amount: number;
+  currency: string;
+  method: RefundMethod;
+  status: RefundStatus;
+  refund_initiated_date: string | null;
+  refund_completed_date: string | null;
+}
+
+export interface ApiRefundDetail extends ApiRefundListItem {
+  razorpay_payment_id: string | null;
+  razorpay_refund_id: string | null;
+  utr_number: string | null;
+  refund_note: string | null;
+  created_at: string;
+}
+
+export interface RefundListResponse {
+  items: ApiRefundListItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface RefundListParams {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: RefundStatus;
+  method?: RefundMethod;
+}
+
+export function listRefunds(
+  accessToken: string,
+  params: RefundListParams = {}
+): Promise<RefundListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<RefundListResponse>(`/admin/refunds${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export function getRefund(accessToken: string, paymentId: string): Promise<ApiRefundDetail> {
+  return authRequest<ApiRefundDetail>(`/admin/refunds/${paymentId}`, accessToken);
+}
+
+export function retryRefund(accessToken: string, paymentId: string): Promise<ApiRefundDetail> {
+  return authRequest<ApiRefundDetail>(`/admin/refunds/${paymentId}/retry`, accessToken, {
+    method: "POST",
+  });
+}
+
+export function markRefundCollected(
+  accessToken: string,
+  paymentId: string,
+  note?: string
+): Promise<ApiRefundDetail> {
+  return authRequest<ApiRefundDetail>(`/admin/refunds/${paymentId}/mark-collected`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({ note: note || undefined }),
+  });
 }

@@ -1,65 +1,50 @@
-import { useRef, useState, type FormEvent } from "react";
-import { IconCamera, IconTrash } from "../../components/layout/icons";
+import { useRef, useState } from "react";
+import { IconCamera } from "../../components/layout/icons";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { ImageCropModal } from "../../components/ui/ImageCropModal";
-import { Modal } from "../../components/ui/Modal";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { TextField } from "../../components/ui/TextField";
+import { ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { validateFullName } from "../../lib/validation";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_TYPES = ["image/jpeg", "image/png"];
 const LOCKED_FIELD_CLASS = "bg-surface-muted text-text-muted";
 
-interface FieldErrors {
-  fullName?: string | null;
+const PHOTO_ERROR_MESSAGES: Record<string, string> = {
+  unsupported_file_type: "Please upload a JPG or PNG image.",
+  file_too_large: "Image must be smaller than 5 MB.",
+  empty_file: "That file appears to be empty. Please choose another photo.",
+  storage_not_configured: "Photo storage isn't set up yet. Please try again later.",
+  storage_unreachable: "Couldn't reach photo storage. Please try again.",
+};
+
+function photoErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    return (err.code && PHOTO_ERROR_MESSAGES[err.code]) || err.message || "Couldn't save your photo. Please try again.";
+  }
+  return "Couldn't save your photo. Please try again.";
+}
+
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const [header, base64] = dataUrl.split(",");
+  const mime = /data:(.*?);base64/.exec(header)?.[1] ?? "image/png";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], filename, { type: mime });
 }
 
 export function AdminProfilePage() {
-  const { admin, updateProfile, updateAvatar, removeAvatar } = useAuth();
+  const { admin, profileLoading, profileError, refreshProfile, uploadAvatar } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [isEditing, setIsEditing] = useState(false);
-  const [fullName, setFullName] = useState(admin?.fullName ?? "");
-  const [phone, setPhone] = useState(admin?.phone ?? "");
-  const [designation, setDesignation] = useState(admin?.designation ?? "");
-  const [department, setDepartment] = useState(admin?.department ?? "");
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const [pickedImage, setPickedImage] = useState<string | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [removeOpen, setRemoveOpen] = useState(false);
-
-  if (!admin) return null;
-
-  const displayName = admin.fullName || admin.email;
-
-  function startEdit() {
-    if (!admin) return;
-    setFullName(admin.fullName ?? "");
-    setPhone(admin.phone ?? "");
-    setDesignation(admin.designation ?? "");
-    setDepartment(admin.department ?? "");
-    setFieldErrors({});
-    setDetailsError(null);
-    setIsEditing(true);
-  }
-
-  function cancelEdit() {
-    if (!admin) return;
-    setFullName(admin.fullName ?? "");
-    setPhone(admin.phone ?? "");
-    setDesignation(admin.designation ?? "");
-    setDepartment(admin.department ?? "");
-    setFieldErrors({});
-    setDetailsError(null);
-    setIsEditing(false);
-  }
 
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -67,8 +52,8 @@ export function AdminProfilePage() {
     if (!file) return;
 
     setPhotoError(null);
-    if (!file.type.startsWith("image/")) {
-      setPhotoError("Please choose an image file.");
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setPhotoError("Please choose a JPG or PNG image.");
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
@@ -87,145 +72,94 @@ export function AdminProfilePage() {
     reader.readAsDataURL(file);
   }
 
-  function handleCropSave(dataUrl: string) {
+  async function handleCropSave(dataUrl: string) {
     setCropOpen(false);
     setPickedImage(null);
+    setPhotoError(null);
+    setUploading(true);
     try {
-      updateAvatar(dataUrl);
-      setPhotoError(null);
+      await uploadAvatar(dataUrlToFile(dataUrl, "profile.png"));
     } catch (err) {
-      setPhotoError(err instanceof Error ? err.message : "Couldn't save your photo. Please try again.");
-    }
-  }
-
-  function handleRemovePhoto() {
-    setRemoveOpen(false);
-    try {
-      removeAvatar();
-      setPhotoError(null);
-    } catch (err) {
-      setPhotoError(err instanceof Error ? err.message : "Couldn't remove your photo. Please try again.");
-    }
-  }
-
-  function handleSaveDetails(e: FormEvent) {
-    e.preventDefault();
-    const errors: FieldErrors = { fullName: validateFullName(fullName) };
-    setFieldErrors(errors);
-    if (Object.values(errors).some(Boolean)) return;
-
-    try {
-      updateProfile({
-        fullName: fullName.trim(),
-        phone: phone.trim(),
-        designation: designation.trim(),
-        department: department.trim(),
-      });
-      setDetailsError(null);
-      setIsEditing(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (err) {
-      setDetailsError(err instanceof Error ? err.message : "Couldn't save your changes. Please try again.");
+      setPhotoError(photoErrorMessage(err));
+    } finally {
+      setUploading(false);
     }
   }
 
   return (
     <div>
-      <PageHeader title="My Profile" subtitle="View and update your admin account details" />
+      <PageHeader title="My Profile" subtitle="View your admin account details" />
 
-      <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-        <Card className="flex flex-col items-center gap-4 p-6 text-center">
-          <div className="relative">
+      {profileLoading && !admin && (
+        <Card className="p-10 text-center text-sm text-text-muted">Loading your profile...</Card>
+      )}
+
+      {!profileLoading && profileError && !admin && (
+        <Card className="p-10 text-center text-sm text-text-muted">
+          <p className="mb-4">{profileError}</p>
+          <Button variant="outline" size="sm" onClick={refreshProfile}>
+            Try again
+          </Button>
+        </Card>
+      )}
+
+      {admin && (
+        <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+          <Card className="flex flex-col items-center gap-4 p-6 text-center">
             {admin.avatarUrl ? (
               <img
                 src={admin.avatarUrl}
-                alt={displayName}
+                alt={admin.fullName}
                 className="h-32 w-32 rounded-full border-4 border-surface object-cover shadow-md"
               />
             ) : (
-              <Avatar name={displayName} className="h-32 w-32 text-3xl" />
+              <Avatar name={admin.fullName || admin.email} className="h-32 w-32 text-3xl" />
             )}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute bottom-1 right-1 flex h-9 w-9 items-center justify-center rounded-full bg-gold text-white shadow-md hover:bg-gold-dark"
-              aria-label="Upload photo"
-            >
-              <IconCamera className="h-4 w-4" />
-            </button>
-          </div>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleFilePick}
-          />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png"
+              className="hidden"
+              onChange={handleFilePick}
+            />
 
-          <div>
-            <p className="text-base font-semibold text-text">{displayName}</p>
-            <p className="text-sm text-text-muted">{admin.email}</p>
-          </div>
+            <div>
+              <p className="text-base font-semibold text-text">{admin.fullName}</p>
+              <p className="text-sm text-text-muted">{admin.email}</p>
+            </div>
 
-          {photoError && <p className="text-xs text-danger">{photoError}</p>}
+            {uploading && <p className="text-xs text-text-muted">Uploading photo...</p>}
+            {photoError && <p className="text-xs text-danger">{photoError}</p>}
 
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
               <IconCamera className="h-4 w-4" />
               {admin.avatarUrl ? "Change Photo" : "Upload Photo"}
             </Button>
-            {admin.avatarUrl && (
-              <Button variant="danger" size="sm" onClick={() => setRemoveOpen(true)}>
-                <IconTrash className="h-4 w-4" />
-                Remove
-              </Button>
-            )}
-          </div>
-          <p className="text-xs text-text-soft">JPG or PNG, up to 5 MB. You can crop before saving.</p>
-        </Card>
+            <p className="text-xs text-text-soft">JPG or PNG, up to 5 MB. You can crop before saving.</p>
+          </Card>
 
-        <Card className="p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-text-muted">
+          <Card className="p-6">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-text-muted">
               Account Details
             </h2>
-            {!isEditing && (
-              <Button type="button" variant="outline" size="sm" onClick={startEdit}>
-                Edit
-              </Button>
-            )}
-          </div>
 
-          <form className="space-y-4" onSubmit={handleSaveDetails} noValidate>
-            {saved && (
-              <div className="rounded-xl border border-gold/30 bg-gold/10 p-3 text-sm text-gold-dark">
-                Profile updated.
-              </div>
-            )}
-            {detailsError && (
-              <div className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
-                {detailsError}
+            {profileError && (
+              <div className="mb-4 rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
+                {profileError}
               </div>
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <TextField
                 label="Full name"
-                value={fullName}
-                onChange={(e) => {
-                  setFullName(e.target.value);
-                  if (fieldErrors.fullName) setFieldErrors((prev) => ({ ...prev, fullName: null }));
-                }}
-                error={fieldErrors.fullName}
-                disabled={!isEditing}
-                className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
-                required
+                value={admin.fullName}
+                disabled
+                className={LOCKED_FIELD_CLASS}
               />
               <TextField
                 label="Employee ID"
-                value={admin.employeeId ?? "Not assigned"}
+                value={admin.employeeId || "Not assigned"}
                 disabled
                 className={LOCKED_FIELD_CLASS}
                 hint="Employee ID is set by the system and cannot be changed."
@@ -237,43 +171,10 @@ export function AdminProfilePage() {
                 className={LOCKED_FIELD_CLASS}
                 hint="Email is tied to your account and cannot be changed here."
               />
-              <TextField
-                label="Phone"
-                placeholder="+91 98765 43210"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                disabled={!isEditing}
-                className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
-              />
-              <TextField
-                label="Designation"
-                placeholder="Operations Manager"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                disabled={!isEditing}
-                className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
-              />
-              <TextField
-                label="Department"
-                placeholder="Sales & Leasing"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                disabled={!isEditing}
-                className={!isEditing ? LOCKED_FIELD_CLASS : undefined}
-              />
             </div>
-
-            {isEditing && (
-              <div className="flex justify-end gap-3">
-                <Button type="button" variant="outline" onClick={cancelEdit}>
-                  Cancel
-                </Button>
-                <Button type="submit">Save Changes</Button>
-              </div>
-            )}
-          </form>
-        </Card>
-      </div>
+          </Card>
+        </div>
+      )}
 
       <ImageCropModal
         open={cropOpen}
@@ -284,24 +185,6 @@ export function AdminProfilePage() {
         }}
         onSave={handleCropSave}
       />
-
-      <Modal
-        open={removeOpen}
-        onClose={() => setRemoveOpen(false)}
-        title="Remove profile photo?"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setRemoveOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={handleRemovePhoto}>
-              Remove Photo
-            </Button>
-          </>
-        }
-      >
-        This will remove your profile photo and fall back to your initials.
-      </Modal>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMPLOYEE_ID_RE = /^DV[A-Z0-9]+$/;
 const OTP_RE = /^\d{6}$/;
-const ADMIN_EMAIL_DOMAIN = "@divineinfravision.com";
+const ADMIN_EMAIL_DOMAIN = "@divinevisioninfra.com";
 
 export function validateEmail(value: string): string | null {
   const trimmed = value.trim();

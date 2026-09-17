@@ -22,9 +22,10 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  const state = location.state as { reset?: boolean; signedUp?: boolean } | null;
+  const state = location.state as { reset?: boolean; signedUp?: boolean; verified?: boolean } | null;
   const justReset = state?.reset;
   const justSignedUp = state?.signedUp;
+  const justVerified = state?.verified;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,6 +47,8 @@ export function LoginPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Incorrect email or password.");
+      } else if (err instanceof ApiError && err.status === 403 && err.code === "email_not_verified") {
+        navigate("/admin/signup", { state: { verifyEmail: email.trim() } });
       } else {
         setError("Something went wrong. Please try again.");
       }
@@ -75,6 +78,11 @@ export function LoginPage() {
         {justSignedUp && (
           <div className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
             Account created. Please sign in with your new credentials.
+          </div>
+        )}
+        {justVerified && (
+          <div className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
+            Email verified. Please sign in with your credentials.
           </div>
         )}
         {error && (

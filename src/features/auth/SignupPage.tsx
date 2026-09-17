@@ -4,7 +4,12 @@ import { AuthLayout } from "../../components/layout/AuthLayout";
 import { Button } from "../../components/ui/Button";
 import { TextField } from "../../components/ui/TextField";
 import { ApiError, signup } from "../../lib/api";
-import { validateEmail, validateEmployeeId, validateFullName, validatePassword } from "../../lib/validation";
+import {
+  validateAdminSignupEmail,
+  validateEmployeeId,
+  validateFullName,
+  validatePassword,
+} from "../../lib/validation";
 
 interface FieldErrors {
   fullName?: string | null;
@@ -27,7 +32,7 @@ export function SignupPage() {
     return {
       fullName: validateFullName(fullName),
       employeeId: validateEmployeeId(employeeId),
-      email: validateEmail(email),
+      email: validateAdminSignupEmail(email),
       password: validatePassword(password),
     };
   }
@@ -113,7 +118,7 @@ export function SignupPage() {
         <TextField
           label="Work email"
           type="email"
-          placeholder="you@divinevisioninfra.com"
+          placeholder="you@divineinfravision.com"
           autoComplete="email"
           value={email}
           onChange={(e) => {

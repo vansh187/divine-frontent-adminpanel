@@ -22,7 +22,7 @@ export function HelpPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [ticketNumber, setTicketNumber] = useState<string | null>(null);
 
   function validate(): FieldErrors {
     return {
@@ -42,20 +42,38 @@ export function HelpPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await submitSupportTicket(accessToken, { subject: subject.trim(), description: description.trim() });
+      const result = await submitSupportTicket(accessToken, {
+        subject: subject.trim(),
+        description: description.trim(),
+      });
       setSubject("");
       setDescription("");
       setFieldErrors({});
-      setSubmitted(true);
+      setTicketNumber(result.ticket_number);
     } catch (err) {
-      setSubmitError(err instanceof ApiError ? err.message : "Couldn't submit your ticket. Please try again.");
+      if (err instanceof ApiError && err.validationErrors) {
+        const errors: FieldErrors = {};
+        for (const v of err.validationErrors) {
+          const field = v.loc[v.loc.length - 1];
+          if (field === "subject") errors.subject = v.msg;
+          if (field === "description") errors.description = v.msg;
+        }
+        setFieldErrors(errors);
+        setSubmitError("Please check the subject and description.");
+      } else if (err instanceof ApiError && err.status === 502) {
+        setSubmitError("Couldn't deliver the ticket — please try again.");
+      } else if (err instanceof ApiError) {
+        setSubmitError(err.message || "Couldn't submit your ticket. Please try again.");
+      } else {
+        setSubmitError("Couldn't submit your ticket. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
   function raiseAnother() {
-    setSubmitted(false);
+    setTicketNumber(null);
     setSubmitError(null);
   }
 
@@ -64,9 +82,9 @@ export function HelpPage() {
       <PageHeader title="Help & Support" subtitle="Raise a ticket with the Divine Vision Infra dev team" />
 
       <Card className="max-w-lg p-6">
-        {submitted ? (
+        {ticketNumber ? (
           <div className="space-y-4 text-center">
-            <p className="text-sm font-semibold text-text">Ticket submitted.</p>
+            <p className="text-sm font-semibold text-text">Ticket {ticketNumber} submitted.</p>
             <p className="text-sm text-text-muted">
               The dev team has been notified by email and will follow up with you.
             </p>

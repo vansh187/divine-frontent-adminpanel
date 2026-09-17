@@ -2,14 +2,24 @@ const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
   "https://divinevisioninfrabackend.onrender.com";
 
+export interface FastApiValidationError {
+  type: string;
+  loc: (string | number)[];
+  msg: string;
+  input?: unknown;
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
+  /** Raw `detail` from a FastAPI 422 validation body, when the error is shaped that way. */
+  validationErrors?: FastApiValidationError[];
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, validationErrors?: FastApiValidationError[]) {
     super(message);
     this.status = status;
     this.code = code;
+    this.validationErrors = validationErrors;
   }
 }
 
@@ -19,7 +29,20 @@ async function parseResponse<T>(res: Response): Promise<T> {
 
   if (!res.ok) {
     const detail = body?.detail;
-    const code = typeof detail === "string" ? detail : detail?.code ?? detail?.[0]?.type;
+
+    if (Array.isArray(detail)) {
+      const message =
+        detail
+          .map((d: FastApiValidationError) => {
+            const field = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body").join(".") : null;
+            return field ? `${field}: ${d.msg}` : d.msg;
+          })
+          .filter(Boolean)
+          .join(" ") || `Request failed with status ${res.status}`;
+      throw new ApiError(res.status, message, detail[0]?.type, detail);
+    }
+
+    const code = typeof detail === "string" ? detail : detail?.code;
     const message =
       (typeof detail === "string" ? detail : detail?.message) ??
       body?.message ??
@@ -187,10 +210,20 @@ export interface SupportTicketPayload {
   description: string;
 }
 
-// Endpoint path is provisional pending backend confirmation. Submitting is expected
-// to email the dev team with the ticket subject/description.
-export function submitSupportTicket(accessToken: string, payload: SupportTicketPayload): Promise<void> {
-  return authRequest<void>("/admin/support-tickets", accessToken, {
+export interface ApiSupportTicket {
+  ticket_number: string;
+  subject: string;
+  description: string;
+  raised_by: string | null;
+  submitted_date: string;
+  email_sent: boolean;
+}
+
+export function submitSupportTicket(
+  accessToken: string,
+  payload: SupportTicketPayload
+): Promise<ApiSupportTicket> {
+  return authRequest<ApiSupportTicket>("/admin/support-tickets", accessToken, {
     method: "POST",
     body: JSON.stringify(payload),
   });

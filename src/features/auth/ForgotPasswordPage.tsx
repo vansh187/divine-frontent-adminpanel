@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthLayout } from "../../components/layout/AuthLayout";
 import { Button } from "../../components/ui/Button";
+import { PasswordVisibilityButton } from "../../components/ui/PasswordVisibilityButton";
 import { TextField } from "../../components/ui/TextField";
 import { ApiError, forgotPassword, resetPassword } from "../../lib/api";
 import {
@@ -45,6 +46,8 @@ export function ForgotPasswordPage() {
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPasswordVisible, setNewPasswordVisible] = useState(false);
+  const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [otpFieldErrors, setOtpFieldErrors] = useState<OtpFieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +167,7 @@ export function ForgotPasswordPage() {
           />
           <TextField
             label="New password"
-            type="password"
+            type={newPasswordVisible ? "text" : "password"}
             placeholder="Minimum 8 characters"
             autoComplete="new-password"
             minLength={8}
@@ -174,11 +177,17 @@ export function ForgotPasswordPage() {
               if (otpFieldErrors.newPassword) setOtpFieldErrors((prev) => ({ ...prev, newPassword: null }));
             }}
             error={otpFieldErrors.newPassword}
+            trailingAction={
+              <PasswordVisibilityButton
+                visible={newPasswordVisible}
+                onToggle={() => setNewPasswordVisible((visible) => !visible)}
+              />
+            }
             required
           />
           <TextField
             label="Confirm new password"
-            type="password"
+            type={confirmPasswordVisible ? "text" : "password"}
             placeholder="Re-enter new password"
             autoComplete="new-password"
             minLength={8}
@@ -189,6 +198,12 @@ export function ForgotPasswordPage() {
                 setOtpFieldErrors((prev) => ({ ...prev, confirmPassword: null }));
             }}
             error={otpFieldErrors.confirmPassword}
+            trailingAction={
+              <PasswordVisibilityButton
+                visible={confirmPasswordVisible}
+                onToggle={() => setConfirmPasswordVisible((visible) => !visible)}
+              />
+            }
             required
           />
 

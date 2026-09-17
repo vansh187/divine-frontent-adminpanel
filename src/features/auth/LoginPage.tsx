@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthLayout } from "../../components/layout/AuthLayout";
 import { Button } from "../../components/ui/Button";
+import { PasswordVisibilityButton } from "../../components/ui/PasswordVisibilityButton";
 import { TextField } from "../../components/ui/TextField";
 import { ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { validateEmail, validateLoginPassword } from "../../lib/validation";
+import { validateAdminEmail, validateLoginPassword } from "../../lib/validation";
 
 interface FieldErrors {
   email?: string | null;
@@ -18,20 +19,22 @@ export function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  const state = location.state as { reset?: boolean; signedUp?: boolean } | null;
+  const state = location.state as { reset?: boolean; signedUp?: boolean; verified?: boolean } | null;
   const justReset = state?.reset;
   const justSignedUp = state?.signedUp;
+  const justVerified = state?.verified;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
     const errors: FieldErrors = {
-      email: validateEmail(email),
+      email: validateAdminEmail(email),
       password: validateLoginPassword(password),
     };
     setFieldErrors(errors);
@@ -46,6 +49,8 @@ export function LoginPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Incorrect email or password.");
+      } else if (err instanceof ApiError && err.status === 403 && err.code === "email_not_verified") {
+        navigate("/admin/signup", { state: { verifyEmail: email.trim() } });
       } else {
         setError("Something went wrong. Please try again.");
       }
@@ -77,6 +82,11 @@ export function LoginPage() {
             Account created. Please sign in with your new credentials.
           </div>
         )}
+        {justVerified && (
+          <div className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
+            Email verified. Please sign in with your credentials.
+          </div>
+        )}
         {error && (
           <div className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
             {error}
@@ -99,7 +109,7 @@ export function LoginPage() {
         <div>
           <TextField
             label="Password"
-            type="password"
+            type={passwordVisible ? "text" : "password"}
             placeholder="••••••••"
             autoComplete="current-password"
             value={password}
@@ -108,6 +118,12 @@ export function LoginPage() {
               if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: null }));
             }}
             error={fieldErrors.password}
+            trailingAction={
+              <PasswordVisibilityButton
+                visible={passwordVisible}
+                onToggle={() => setPasswordVisible((visible) => !visible)}
+              />
+            }
             required
           />
           <div className="mt-2 text-right">

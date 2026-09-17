@@ -97,6 +97,20 @@ export function signup(payload: {
   });
 }
 
+export function verifySignup(payload: { email: string; otp: string }): Promise<{ message: string }> {
+  return request<{ message: string }>("/admin/verify-signup", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resendSignupOtp(email: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/admin/resend-signup-otp", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
 export function login(payload: { email: string; password: string }): Promise<TokenResponse> {
   return request<TokenResponse>("/admin/login", {
     method: "POST",

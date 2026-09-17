@@ -1,11 +1,23 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMPLOYEE_ID_RE = /^DV[A-Z0-9]+$/;
 const OTP_RE = /^\d{6}$/;
+const ADMIN_EMAIL_DOMAIN = "@divineinfravision.com";
 
 export function validateEmail(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return "Email is required.";
   if (!EMAIL_RE.test(trimmed)) return "Enter a valid email address.";
+  return null;
+}
+
+export function validateAdminSignupEmail(value: string): string | null {
+  const emailError = validateEmail(value);
+  if (emailError) return emailError;
+
+  if (!value.trim().toLowerCase().endsWith(ADMIN_EMAIL_DOMAIN)) {
+    return `Use your ${ADMIN_EMAIL_DOMAIN} email address.`;
+  }
+
   return null;
 }
 

@@ -10,7 +10,7 @@ export function validateEmail(value: string): string | null {
   return null;
 }
 
-export function validateAdminSignupEmail(value: string): string | null {
+export function validateAdminEmail(value: string): string | null {
   const emailError = validateEmail(value);
   if (emailError) return emailError;
 

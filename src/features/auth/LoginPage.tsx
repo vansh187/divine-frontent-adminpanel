@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthLayout } from "../../components/layout/AuthLayout";
 import { Button } from "../../components/ui/Button";
+import { PasswordVisibilityButton } from "../../components/ui/PasswordVisibilityButton";
 import { TextField } from "../../components/ui/TextField";
 import { ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { validateEmail, validateLoginPassword } from "../../lib/validation";
+import { validateAdminEmail, validateLoginPassword } from "../../lib/validation";
 
 interface FieldErrors {
   email?: string | null;
@@ -18,6 +19,7 @@ export function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -32,7 +34,7 @@ export function LoginPage() {
     setError(null);
 
     const errors: FieldErrors = {
-      email: validateEmail(email),
+      email: validateAdminEmail(email),
       password: validateLoginPassword(password),
     };
     setFieldErrors(errors);
@@ -107,7 +109,7 @@ export function LoginPage() {
         <div>
           <TextField
             label="Password"
-            type="password"
+            type={passwordVisible ? "text" : "password"}
             placeholder="••••••••"
             autoComplete="current-password"
             value={password}
@@ -116,6 +118,12 @@ export function LoginPage() {
               if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: null }));
             }}
             error={fieldErrors.password}
+            trailingAction={
+              <PasswordVisibilityButton
+                visible={passwordVisible}
+                onToggle={() => setPasswordVisible((visible) => !visible)}
+              />
+            }
             required
           />
           <div className="mt-2 text-right">

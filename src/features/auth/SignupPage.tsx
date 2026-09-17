@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthLayout } from "../../components/layout/AuthLayout";
 import { Button } from "../../components/ui/Button";
+import { PasswordVisibilityButton } from "../../components/ui/PasswordVisibilityButton";
 import { TextField } from "../../components/ui/TextField";
 import { ApiError, resendSignupOtp, signup, verifySignup } from "../../lib/api";
 import {
-  validateAdminSignupEmail,
+  validateAdminEmail,
   validateEmployeeId,
   validateFullName,
   validateOtp,
@@ -73,6 +74,7 @@ export function SignupPage() {
   const [employeeId, setEmployeeId] = useState("");
   const [email, setEmail] = useState(state?.verifyEmail ?? "");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [step, setStep] = useState<"signup" | "otp">(state?.verifyEmail ? "otp" : "signup");
   const [otp, setOtp] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -101,7 +103,7 @@ export function SignupPage() {
     return {
       fullName: validateFullName(fullName),
       employeeId: validateEmployeeId(employeeId),
-      email: validateAdminSignupEmail(email),
+      email: validateAdminEmail(email),
       password: validatePassword(password),
     };
   }
@@ -169,7 +171,7 @@ export function SignupPage() {
     setFormError(null);
     setSuccessMessage(null);
 
-    const emailError = validateAdminSignupEmail(email);
+    const emailError = validateAdminEmail(email);
     if (emailError) {
       setFieldErrors((prev) => ({ ...prev, email: emailError }));
       setStep("signup");
@@ -248,7 +250,7 @@ export function SignupPage() {
           />
           <TextField
             label="Password"
-            type="password"
+            type={passwordVisible ? "text" : "password"}
             placeholder="Minimum 8 characters"
             autoComplete="new-password"
             minLength={8}
@@ -258,6 +260,12 @@ export function SignupPage() {
               if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: null }));
             }}
             error={fieldErrors.password}
+            trailingAction={
+              <PasswordVisibilityButton
+                visible={passwordVisible}
+                onToggle={() => setPasswordVisible((visible) => !visible)}
+              />
+            }
             required
           />
 

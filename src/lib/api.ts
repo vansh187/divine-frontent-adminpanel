@@ -1,6 +1,6 @@
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  "https://divinevisioninfrabackend.onrender.com";
+  "https://divinevisioninfrabackend-301k.onrender.com";
 
 export interface FastApiValidationError {
   type: string;

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { Avatar } from "../ui/Avatar";
-import { IconBell, IconMenu } from "./icons";
+import { IconBell, IconLogout, IconMenu } from "./icons";
 
 export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
   const { admin, logout } = useAuth();
@@ -13,14 +13,28 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
     navigate("/admin/login");
   }
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-4 border-b border-border bg-bg/95 px-4 py-4 backdrop-blur sm:px-8">
+    <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-bg/95 px-3 py-3 backdrop-blur sm:gap-4 sm:px-8 sm:py-4">
       <button
         onClick={onMenuClick}
-        className="rounded-lg p-2 text-text-muted hover:bg-surface-muted lg:hidden"
+        className="-ml-1 rounded-lg p-2 text-text-muted hover:bg-surface-muted lg:hidden"
         aria-label="Toggle menu"
       >
-        <IconMenu className="h-5 w-5" />
+        <IconMenu className="h-6 w-6" />
       </button>
+
+      <Link to="/admin" className="flex min-w-0 items-center gap-2 sm:hidden">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar text-gold-light">
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.7}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 21V10.5L12 4l8 6.5V21" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 21v-6h6v6" />
+          </svg>
+        </span>
+        <span className="truncate text-xs font-bold max-[359px]:hidden leading-tight tracking-wide text-ink">
+          DIVINE VISION
+          <br />
+          INFRA
+        </span>
+      </Link>
 
       <div className="relative hidden flex-1 max-w-md sm:block">
         <svg
@@ -39,9 +53,9 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         />
       </div>
 
-      <div className="ml-auto flex items-center gap-3 sm:gap-4">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-4">
         <button
-          className="relative rounded-full p-2.5 text-text-muted hover:bg-surface-muted"
+          className="relative rounded-full p-2 text-text-muted hover:bg-surface-muted sm:p-2.5"
           aria-label="Notifications"
         >
           <IconBell className="h-5 w-5" />
@@ -49,19 +63,22 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         </button>
         <Link
           to="/admin/profile"
-          className="flex items-center gap-2.5 rounded-xl border border-border bg-surface py-1.5 pl-1.5 pr-3 hover:bg-surface-muted"
+          aria-label="My profile"
+          className="flex items-center gap-2.5 rounded-full hover:opacity-90 sm:rounded-xl sm:border sm:border-border sm:bg-surface sm:py-1.5 sm:pl-1.5 sm:pr-3 sm:hover:bg-surface-muted sm:hover:opacity-100"
         >
           <Avatar name={displayName} src={admin?.avatarUrl} />
-          <div className="hidden text-left leading-tight sm:block">
+          <div className="hidden min-w-0 max-w-[220px] text-left leading-tight md:block [&>p]:truncate">
             <p className="text-sm font-semibold text-text">{displayName}</p>
             <p className="text-xs text-text-muted">{admin?.email}</p>
           </div>
         </Link>
         <button
           onClick={handleLogout}
-          className="rounded-xl bg-gold px-3 py-2 text-sm font-medium text-white hover:bg-gold-dark"
+          aria-label="Log out"
+          className="flex items-center gap-2 rounded-xl bg-gold p-2 text-sm font-medium text-white hover:bg-gold-dark sm:px-3"
         >
-          Log out
+          <IconLogout className="h-5 w-5 sm:hidden" />
+          <span className="hidden sm:inline">Log out</span>
         </button>
       </div>
     </header>

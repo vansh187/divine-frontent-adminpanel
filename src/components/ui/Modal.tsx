@@ -11,9 +11,9 @@ interface ModalProps {
 export function Modal({ open, onClose, title, children, footer }: ModalProps) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-4">
+      <div className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:max-w-md sm:rounded-2xl">
+        <div className="flex items-center justify-between gap-3 px-5 pt-5 sm:px-6 sm:pt-6">
           <h2 className="text-lg font-bold text-text">{title}</h2>
           <button
             onClick={onClose}
@@ -25,8 +25,14 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
             </svg>
           </button>
         </div>
-        <div className="text-sm text-text-muted">{children}</div>
-        {footer && <div className="mt-6 flex justify-end gap-3">{footer}</div>}
+        <div className="mt-4 overflow-y-auto px-5 pb-5 text-sm text-text-muted sm:px-6 sm:pb-6">
+          {children}
+          {footer && (
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end [&>*]:w-full sm:[&>*]:w-auto">
+              {footer}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

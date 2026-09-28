@@ -87,7 +87,7 @@ export function SiteVisitsPage() {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
-        <div className="flex overflow-hidden rounded-xl border border-border">
+        <div className="flex w-full overflow-hidden rounded-xl border border-border sm:w-auto">
           {(["ALL", "CUSTOMER", "CHANNEL_PARTNER"] as const).map((s) => (
             <button
               key={s}
@@ -95,7 +95,7 @@ export function SiteVisitsPage() {
                 setOriginType(s);
                 setPage(1);
               }}
-              className={`px-3.5 py-2.5 text-xs font-semibold transition-colors ${
+              className={`flex-1 whitespace-nowrap px-3.5 py-2.5 text-xs sm:flex-none font-semibold transition-colors ${
                 originType === s ? "bg-ink text-white" : "bg-surface text-text-muted hover:bg-surface-muted"
               }`}
             >

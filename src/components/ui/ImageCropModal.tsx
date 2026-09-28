@@ -119,8 +119,8 @@ export function ImageCropModal({ open, imageSrc, onCancel, onSave }: ImageCropMo
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-3 sm:p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-surface p-4 shadow-xl sm:p-6">
         <h2 className="mb-4 text-lg font-bold text-text">Adjust photo</h2>
 
         <div
@@ -168,7 +168,7 @@ export function ImageCropModal({ open, imageSrc, onCancel, onSave }: ImageCropMo
           </p>
         )}
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
           <Button variant="outline" onClick={onCancel} disabled={saving}>
             Cancel
           </Button>

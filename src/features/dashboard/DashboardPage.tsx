@@ -382,7 +382,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-text">
+          <h1 className="text-xl font-bold text-text sm:text-2xl">
             Good Morning, {admin?.fullName || admin?.email || "Admin"}
           </h1>
           <p className="mt-1 text-sm text-text-muted">Here&apos;s your work overview for today</p>
@@ -498,7 +498,7 @@ export function DashboardPage() {
             <div className="flex h-[240px] items-center justify-center text-sm text-text-muted">Loading...</div>
           ) : (
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={funnelData} layout="vertical" margin={{ left: 24 }}>
+              <BarChart data={funnelData} layout="vertical" margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e8e0d1" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 12, fill: INK }} axisLine={false} tickLine={false} />
                 <YAxis
@@ -507,7 +507,7 @@ export function DashboardPage() {
                   tick={{ fontSize: 11, fill: INK }}
                   axisLine={false}
                   tickLine={false}
-                  width={140}
+                  width={112}
                 />
                 <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#e8e0d1", fontSize: 12 }} />
                 <Bar dataKey="value" radius={[0, 6, 6, 0]}>
@@ -544,9 +544,9 @@ export function DashboardPage() {
               <div
                 key={visit.id}
                 onClick={() => openVisit(visit)}
-                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border p-3 hover:bg-surface-muted"
+                className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border p-3 hover:bg-surface-muted sm:flex-row sm:items-center sm:justify-between sm:gap-3"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <Avatar name={visit.customer_name} />
                   <div>
                     <p className="text-sm font-semibold text-text">{visit.customer_name}</p>
@@ -556,7 +556,7 @@ export function DashboardPage() {
                     </p>
                   </div>
                 </div>
-                <p className="text-xs font-medium text-text-muted">{scheduleLabel(visit)}</p>
+                <p className="pl-12 text-xs font-medium text-text-muted sm:shrink-0 sm:pl-0">{scheduleLabel(visit)}</p>
               </div>
             ))}
             {upcomingVisits.length === 0 && (

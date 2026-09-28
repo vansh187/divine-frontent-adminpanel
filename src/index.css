@@ -52,6 +52,104 @@ body {
   box-sizing: border-box;
 }
 
+/* Long unbroken values (emails, payment IDs) must wrap instead of spilling out of cards. */
+dl > div {
+  min-width: 0;
+}
+dd {
+  overflow-wrap: anywhere;
+}
+
+/* iOS Safari zooms the page when focusing a field with font-size < 16px. */
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/*
+ * Data tables collapse into cards when their container is too narrow for the columns
+ * (phones, 7" and 10" tablets in either orientation, including next to the sidebar).
+ * Table.tsx copies each <th> label onto its column's <td> as data-label.
+ */
+.rtable-container {
+  container-type: inline-size;
+}
+@container (max-width: 999px) {
+  .rtable-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+  }
+  .rtable,
+  .rtable tbody {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .rtable thead {
+    display: none;
+  }
+  .rtable tbody {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .rtable tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+    padding: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    background: var(--color-surface);
+  }
+  .rtable tbody > tr > td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .rtable tbody > tr > td:first-child,
+  .rtable tbody > tr > td[colspan] {
+    grid-column: 1 / -1;
+  }
+  .rtable tbody > tr > td:first-child {
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .rtable tbody > tr > td[colspan] {
+    padding: 1.5rem 0;
+    border: 0;
+  }
+  .rtable tbody > tr > td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+  .rtable tbody > tr > td:first-child::before {
+    display: none !important;
+  }
+}
+
+@container (min-width: 560px) and (max-width: 999px) {
+  .rtable tbody {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rtable tbody > tr:has(> td[colspan]) {
+    grid-column: 1 / -1;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

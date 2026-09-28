@@ -38,8 +38,8 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () =
   return (
     <aside
       className={clsx(
-        "fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-sidebar text-white transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
-        open ? "translate-x-0" : "-translate-x-full"
+        "fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-y-auto overscroll-contain bg-sidebar text-white transition-transform duration-200 lg:sticky lg:top-0 lg:h-dvh lg:w-64 lg:max-w-none lg:translate-x-0",
+        open ? "translate-x-0 shadow-2xl" : "-translate-x-full"
       )}
     >
       <div className="flex items-center gap-3 px-6 py-6">
@@ -55,7 +55,7 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () =
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+      <nav className="flex-1 space-y-1 px-3 py-2">
         {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
@@ -80,6 +80,7 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () =
       <div className="space-y-1 border-t border-white/10 px-3 py-4">
         <NavLink
           to="/admin/help"
+          onClick={onNavigate}
           className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/70 hover:bg-sidebar-hover hover:text-white"
         >
           <IconHelp className="h-[18px] w-[18px]" />

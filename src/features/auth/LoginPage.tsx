@@ -16,7 +16,7 @@ interface FieldErrors {
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, sessionExpired } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -24,10 +24,19 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  const state = location.state as { reset?: boolean; signedUp?: boolean; verified?: boolean } | null;
+  const state = location.state as {
+    reset?: boolean;
+    signedUp?: boolean;
+    verified?: boolean;
+    from?: { pathname: string; search?: string; hash?: string };
+  } | null;
   const justReset = state?.reset;
   const justSignedUp = state?.signedUp;
   const justVerified = state?.verified;
+  // The protected page ProtectedRoute bounced the admin away from, if any.
+  const returnTo = state?.from?.pathname?.startsWith("/admin")
+    ? `${state.from.pathname}${state.from.search ?? ""}${state.from.hash ?? ""}`
+    : "/admin";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,7 +54,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email.trim(), password);
-      navigate("/admin");
+      navigate(returnTo, { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Incorrect email or password.");
@@ -72,6 +81,11 @@ export function LoginPage() {
       }
     >
       <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+        {sessionExpired && (
+          <div className="rounded-xl border border-warning/30 bg-warning-bg p-3 text-sm text-warning">
+            Your session has expired. Please sign in again.
+          </div>
+        )}
         {justReset && (
           <div className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
             Password reset successful. Please sign in with your new password.

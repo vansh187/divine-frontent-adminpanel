@@ -20,6 +20,8 @@ interface AuthContextValue {
   refreshProfile: () => void;
   accessToken: string | null;
   isAuthenticated: boolean;
+  /** True after the admin was logged out because their token expired or was rejected. */
+  sessionExpired: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (payload: {
     full_name: string;
@@ -33,10 +35,41 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Expiry of a JWT access token in ms since epoch, or null if it can't be read. */
+function tokenExpiryMs(token: string): number | null {
+  try {
+    const payload = token.split(".")[1];
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof json.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpired(token: string): boolean {
+  const exp = tokenExpiryMs(token);
+  return exp !== null && exp <= Date.now();
+}
+
+/** Reads the stored token, discarding it up front if it has already expired. */
+function loadStoredToken(): string | null {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (token && isTokenExpired(token)) {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    return null;
+  }
+  return token;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [accessToken, setAccessToken] = useState<string | null>(() =>
-    localStorage.getItem(ACCESS_TOKEN_KEY)
-  );
+  // Initialised before accessToken so it still sees a stored-but-expired token
+  // that loadStoredToken is about to discard.
+  const [sessionExpired, setSessionExpired] = useState(() => {
+    const stored = localStorage.getItem(ACCESS_TOKEN_KEY);
+    return !!stored && isTokenExpired(stored);
+  });
+  const [accessToken, setAccessToken] = useState<string | null>(loadStoredToken);
 
   const [profile, setProfile] = useState<api.ApiAdminProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -92,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tokens = await api.login({ email: loginEmail, password });
     localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
     localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
+    setSessionExpired(false);
     setAccessToken(tokens.access_token);
   }, []);
 
@@ -108,12 +142,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   }, []);
 
+  const expireSession = useCallback(() => {
+    setSessionExpired(true);
+    logout();
+  }, [logout]);
+
   // Any authenticated request that comes back 401 (expired/invalid token) logs the
   // admin out here; ProtectedRoute then redirects to /admin/login on the next render.
   useEffect(() => {
-    api.setUnauthorizedHandler(logout);
+    api.setUnauthorizedHandler(expireSession);
     return () => api.setUnauthorizedHandler(null);
-  }, [logout]);
+  }, [expireSession]);
+
+  // Also log out the moment the token expires, even if the admin is idle on a page
+  // and no request is in flight to come back 401.
+  useEffect(() => {
+    if (!accessToken) return;
+    const exp = tokenExpiryMs(accessToken);
+    if (exp === null) return;
+    // setTimeout overflows past ~24.8 days; tokens never live that long, but clamp anyway.
+    const delay = Math.min(Math.max(exp - Date.now(), 0), 2_147_483_647);
+    const timer = setTimeout(expireSession, delay);
+    return () => clearTimeout(timer);
+  }, [accessToken, expireSession]);
 
   const uploadAvatar = useCallback(
     async (file: File) => {
@@ -132,12 +183,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshProfile,
       accessToken,
       isAuthenticated: !!accessToken,
+      sessionExpired,
       login,
       signup,
       logout,
       uploadAvatar,
     }),
-    [admin, profileLoading, profileError, refreshProfile, accessToken, login, signup, logout, uploadAvatar]
+    [
+      admin,
+      profileLoading,
+      profileError,
+      refreshProfile,
+      accessToken,
+      sessionExpired,
+      login,
+      signup,
+      logout,
+      uploadAvatar,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

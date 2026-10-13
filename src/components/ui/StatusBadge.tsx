@@ -48,6 +48,10 @@ const STATUS_TONE: Record<string, Tone> = {
   BANK_TRANSFER_PENDING: "warning",
   BANK_TRANSFER_COMPLETED: "success",
   NOT_REQUIRED: "neutral",
+  // Installment
+  UPCOMING: "neutral",
+  DUE: "warning",
+  OVERDUE: "danger",
   // Visit
   SCHEDULED: "info",
   CONFIRMED: "info",

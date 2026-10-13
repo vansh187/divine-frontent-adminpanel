@@ -9,12 +9,16 @@ import {
   ApiError,
   approveBooking,
   cancelBookedPlot,
+  downloadAllotmentLetter,
   getBooking,
   rejectBooking,
   type ApiBookingDetail,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { saveBlob } from "../../lib/download";
 import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
+import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
+import { PaymentPlanCard } from "./PaymentPlanCard";
 
 type ModalKind = "approve" | "reject" | "cancelPlot" | null;
 
@@ -39,6 +43,9 @@ export function BookingDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  const [downloadingLetter, setDownloadingLetter] = useState(false);
+  const [letterError, setLetterError] = useState<string | null>(null);
 
   const fetchBooking = useCallback(() => {
     if (!id || !accessToken) return;
@@ -127,9 +134,33 @@ export function BookingDetailPage() {
     }
   }
 
+  async function handleDownloadAllotmentLetter() {
+    if (!accessToken || !booking) return;
+    setDownloadingLetter(true);
+    setLetterError(null);
+    try {
+      const { blob, filename } = await downloadAllotmentLetter(accessToken, booking.id);
+      saveBlob(blob, filename ?? `Allotment-Letter-${booking.id}.pdf`);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "not_uploaded") {
+        setLetterError("The booking application has not been uploaded for this booking yet.");
+      } else {
+        setLetterError("Could not download the allotment letter. Please try again.");
+      }
+    } finally {
+      setDownloadingLetter(false);
+    }
+  }
+
   const isReviewable = booking?.status === "pending_kyc_review";
   const allDocumentsUploaded = (booking?.documents ?? []).every((doc) => doc.uploaded);
   const canApprove = isReviewable && allDocumentsUploaded;
+  // Same truthiness check for label and value so an empty string never yields a blank reference.
+  const paymentReference = booking?.utr_number
+    ? { label: "UTR Number", value: booking.utr_number }
+    : booking?.cheque_number
+      ? { label: "Cheque Number", value: booking.cheque_number }
+      : { label: "Reference", value: booking?.razorpay_payment_id || "-" };
 
   return (
     <div>
@@ -248,15 +279,30 @@ export function BookingDetailPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-text-muted">
-                      {booking.utr_number ? "UTR Number" : "Reference"}
-                    </dt>
-                    <dd className="font-medium text-text">
-                      {booking.utr_number ?? booking.razorpay_payment_id ?? "-"}
-                    </dd>
+                    <dt className="text-xs text-text-muted">{paymentReference.label}</dt>
+                    <dd className="font-medium text-text">{paymentReference.value}</dd>
                   </div>
                 </dl>
               </Card>
+
+              {booking.status === "booked" && accessToken && (
+                <SectionErrorBoundary title="Payment Plan" resetKey={booking}>
+                  <PaymentPlanCard
+                    accessToken={accessToken}
+                    booking={booking}
+                    onUpdated={(result) => {
+                      setBooking(result);
+                      setActionError(null);
+                      setActionNotice(null);
+                    }}
+                    onStale={(message) => {
+                      setActionNotice(null);
+                      setActionError(message);
+                      fetchBooking();
+                    }}
+                  />
+                </SectionErrorBoundary>
+              )}
 
               <Card className="p-5">
                 <div className="mb-4 flex items-center justify-between">
@@ -338,6 +384,25 @@ export function BookingDetailPage() {
                   <p className="mb-3 text-xs text-text-muted">Final receipt is available for download.</p>
                   <Button variant="outline" size="sm" className="w-full">
                     Download Receipt PDF
+                  </Button>
+                </Card>
+              )}
+
+              {booking.status === "booked" && (
+                <Card className="p-5">
+                  <h3 className="mb-2 text-sm font-bold text-text">Allotment Letter</h3>
+                  <p className="mb-3 text-xs text-text-muted">
+                    Official allotment letter for Unit {booking.unit_number}, {booking.project_name}.
+                  </p>
+                  {letterError && <p className="mb-3 text-xs text-danger">{letterError}</p>}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={downloadingLetter}
+                    onClick={handleDownloadAllotmentLetter}
+                  >
+                    {downloadingLetter ? "Preparing..." : "Download Allotment Letter"}
                   </Button>
                 </Card>
               )}

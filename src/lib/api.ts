@@ -494,10 +494,43 @@ export interface ApiBookingDetail {
   payment_status: string;
   razorpay_payment_id: string | null;
   utr_number: string | null;
+  cheque_number: string | null;
   documents: ApiBookingDocument[];
   decision_history: ApiBookingDecision[];
+  /** Empty until a Booking Application document is uploaded for this booking. */
+  payment_schedule: ApiPaymentMilestone[];
+  next_due: ApiNextDue | null;
+  amount_received: number | null;
   created_at: string;
   last_activity_at: string;
+}
+
+export type InstallmentStatus = "paid" | "overdue" | "due" | "upcoming";
+
+export interface ApiPaymentMilestone {
+  id: string;
+  label: string;
+  percent: number;
+  due_days: number;
+  due_date: string;
+  amount: number;
+  status: InstallmentStatus;
+  /** The backend rejects a payment for this milestone before this date. */
+  pay_enabled_from: string;
+  paid_on: string | null;
+  paid_payment_id: string | null;
+}
+
+export interface ApiNextDue {
+  milestone_id: string;
+  label: string;
+  amount: number;
+  due_date: string;
+  /** Negative when overdue. */
+  days_until_due: number;
+  status: InstallmentStatus;
+  last_reminder_kind: string | null;
+  last_reminder_at: string | null;
 }
 
 export function getBooking(accessToken: string, id: string): Promise<ApiBookingDetail> {
@@ -542,6 +575,76 @@ export function cancelBookedPlot(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export type InstallmentPaymentMethod = "cash" | "cheque" | "rtgs_neft";
+
+export interface RecordInstallmentPaymentPayload {
+  amount: number;
+  method: InstallmentPaymentMethod;
+  utr_number?: string;
+  cheque_number?: string;
+  note?: string;
+}
+
+// Records an installment collected outside the gateway. Milestones must be paid
+// in order and not before their pay_enabled_from date; returns the refreshed booking.
+export function recordInstallmentPayment(
+  accessToken: string,
+  bookingId: string,
+  milestoneId: string,
+  payload: RecordInstallmentPaymentPayload
+): Promise<ApiBookingDetail> {
+  return authRequest<ApiBookingDetail>(
+    `/admin/bookings/${bookingId}/installments/${milestoneId}/payments`,
+    accessToken,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+/**
+ * Reads the filename from a Content-Disposition header, preferring the RFC 5987
+ * `filename*=charset'lang'value` form. Never throws — a malformed value just yields null.
+ */
+function parseContentDispositionFilename(disposition: string | null): string | null {
+  if (!disposition) return null;
+
+  const extended = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(disposition);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[2].trim().replace(/^"|"$/g, "")) || null;
+    } catch {
+      // Fall through to the plain filename param.
+    }
+  }
+
+  const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(disposition);
+  const value = (plain?.[1] ?? plain?.[2])?.trim();
+  return value || null;
+}
+
+/**
+ * Authenticated GET of a binary file (e.g. a PDF). The filename is only readable
+ * cross-origin if the backend sends `Access-Control-Expose-Headers: Content-Disposition`;
+ * otherwise it is null and callers fall back to their own name.
+ */
+export function authDownloadRequest(
+  path: string,
+  accessToken: string
+): Promise<{ blob: Blob; filename: string | null }> {
+  return handleUnauthorized(
+    fetch(`${API_BASE_URL}${path}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }).then(async (res) => {
+      if (!res.ok) return parseResponse<never>(res);
+      const filename = parseContentDispositionFilename(res.headers.get("content-disposition"));
+      return { blob: await res.blob(), filename };
+    })
+  );
+}
+
+export function downloadAllotmentLetter(accessToken: string, bookingId: string) {
+  return authDownloadRequest(`/admin/bookings/${bookingId}/allotment-letter`, accessToken);
 }
 
 export type RevenueStatus = "captured" | "cash_recorded" | "refund_pending" | "refunded";

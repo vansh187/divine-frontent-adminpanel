@@ -6,6 +6,8 @@ interface Props {
   children: ReactNode;
   /** Changing this value (e.g. the current route path) clears a caught error. */
   resetKey?: unknown;
+  /** Section-level fallback; `reset` re-renders the children. Defaults to the full-screen reload card. */
+  fallback?: (reset: () => void) => ReactNode;
 }
 
 interface State {
@@ -29,8 +31,11 @@ export class ErrorBoundary extends Component<Props, State> {
     }
   }
 
+  reset = () => this.setState({ hasError: false });
+
   render() {
     if (this.state.hasError) {
+      if (this.props.fallback) return this.props.fallback(this.reset);
       return (
         <Card className="mx-auto mt-10 max-w-md p-8 text-center">
           <h2 className="mb-2 text-lg font-bold text-text">Something went wrong</h2>

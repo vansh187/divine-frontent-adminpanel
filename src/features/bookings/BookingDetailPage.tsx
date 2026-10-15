@@ -62,6 +62,9 @@ const BOOKING_DOCUMENTS: {
 ];
 
 function documentErrorMessage(err: unknown, doc: (typeof BOOKING_DOCUMENTS)[number]) {
+  if (err instanceof TypeError) {
+    return "Could not connect to the document service. Check your connection and try again.";
+  }
   if (err instanceof ApiError && err.code === "not_uploaded") {
     return doc.kind === "application"
       ? "The customer has not uploaded the booking application form yet."

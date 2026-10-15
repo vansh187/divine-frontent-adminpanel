@@ -26,6 +26,7 @@ export class ApiError extends Error {
 async function parseResponse<T>(res: Response): Promise<T> {
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const body = isJson ? await res.json().catch(() => null) : null;
+  const textBody = !isJson && !res.ok ? await res.text().catch(() => "") : "";
 
   if (!res.ok) {
     const detail = body?.detail;
@@ -46,7 +47,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
     const message =
       (typeof detail === "string" ? detail : detail?.message) ??
       body?.message ??
-      `Request failed with status ${res.status}`;
+      (textBody.trim() || `Request failed with status ${res.status}`);
     throw new ApiError(res.status, message, code);
   }
 
@@ -647,17 +648,17 @@ export function authDownloadRequest(
 
 /** The customer's own uploaded, signed booking application form — any booking status. */
 export function downloadApplicationForm(accessToken: string, bookingId: string) {
-  return authDownloadRequest(`/admin/bookings/${bookingId}/application-form`, accessToken);
+  return authDownloadRequest(`/admin/bookings/${encodeURIComponent(bookingId)}/application-form`, accessToken);
 }
 
 /** Generated Provisional Allotment Letter — booked plots only (409 booking_not_booked otherwise). */
 export function downloadAllotmentLetter(accessToken: string, bookingId: string) {
-  return authDownloadRequest(`/admin/bookings/${bookingId}/allotment-letter`, accessToken);
+  return authDownloadRequest(`/admin/bookings/${encodeURIComponent(bookingId)}/allotment-letter`, accessToken);
 }
 
 /** Generated Demand Letter from the live payment schedule — booked plots only. */
 export function downloadDemandLetter(accessToken: string, bookingId: string) {
-  return authDownloadRequest(`/admin/bookings/${bookingId}/demand-letter`, accessToken);
+  return authDownloadRequest(`/admin/bookings/${encodeURIComponent(bookingId)}/demand-letter`, accessToken);
 }
 
 export type RevenueStatus = "captured" | "cash_recorded" | "refund_pending" | "refunded";

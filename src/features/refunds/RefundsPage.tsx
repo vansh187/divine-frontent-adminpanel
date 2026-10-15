@@ -19,15 +19,20 @@ import {
   type RefundStatus,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { formatCurrency, formatDateTime } from "../../lib/format";
+import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
 
 const PAGE_SIZE = 20;
 
 const METHOD_LABELS: Record<RefundMethod, string> = {
   razorpay: "Razorpay",
+  zoho: "Zoho Payments",
   cash: "Cash",
   rtgs_neft: "RTGS/NEFT",
 };
+
+function methodLabel(method: RefundMethod) {
+  return METHOD_LABELS[method] ?? titleCase(method);
+}
 
 const STATUS_LABELS: Record<RefundStatus, string> = {
   processing: "Processing",
@@ -211,7 +216,7 @@ export function RefundsPage() {
     }
   }
 
-  const canRetry = detail?.method === "razorpay" && detail?.status === "processing";
+  const canRetry = !!detail && !["cash", "rtgs_neft"].includes(detail.method) && detail.status === "processing";
   const canMarkCollected =
     detail &&
     (["cash", "rtgs_neft"] as RefundMethod[]).includes(detail.method) &&
@@ -294,7 +299,7 @@ export function RefundsPage() {
                     {r.project_name ?? "—"} {r.unit_number ? `· ${r.unit_number}` : ""}
                   </Td>
                   <Td className="font-semibold">{formatCurrency(r.amount)}</Td>
-                  <Td>{METHOD_LABELS[r.method]}</Td>
+                  <Td>{methodLabel(r.method)}</Td>
                   <Td>
                     <StatusBadge status={r.status.toUpperCase()} label={STATUS_LABELS[r.status]} />
                   </Td>
@@ -374,21 +379,21 @@ export function RefundsPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Method</span>
-                <span className="font-medium text-text">{METHOD_LABELS[detail.method]}</span>
+                <span className="font-medium text-text">{methodLabel(detail.method)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Status</span>
                 <StatusBadge status={detail.status.toUpperCase()} label={STATUS_LABELS[detail.status]} />
               </div>
-              {detail.method === "razorpay" && (
+              {!(["cash", "rtgs_neft"] as RefundMethod[]).includes(detail.method) && (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-text-muted">Razorpay Payment ID</span>
-                    <span className="font-medium text-text">{detail.razorpay_payment_id ?? "—"}</span>
+                    <span className="text-text-muted">Gateway Payment ID</span>
+                    <span className="font-medium text-text">{detail.gateway_payment_id ?? detail.razorpay_payment_id ?? "—"}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-text-muted">Razorpay Refund ID</span>
-                    <span className="font-medium text-text">{detail.razorpay_refund_id ?? "—"}</span>
+                    <span className="text-text-muted">Gateway Refund ID</span>
+                    <span className="font-medium text-text">{detail.gateway_refund_id ?? detail.razorpay_refund_id ?? "—"}</span>
                   </div>
                 </>
               )}

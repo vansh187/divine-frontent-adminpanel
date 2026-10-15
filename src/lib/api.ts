@@ -492,7 +492,9 @@ export interface ApiBookingDetail {
   payment_id: string;
   payment_method: string;
   payment_status: string;
-  razorpay_payment_id: string | null;
+  /** Gateway payment id, with the Razorpay field retained for older backend instances. */
+  gateway_payment_id?: string | null;
+  razorpay_payment_id?: string | null;
   utr_number: string | null;
   cheque_number: string | null;
   documents: ApiBookingDocument[];
@@ -643,12 +645,23 @@ export function authDownloadRequest(
   );
 }
 
+/** The customer's own uploaded, signed booking application form — any booking status. */
+export function downloadApplicationForm(accessToken: string, bookingId: string) {
+  return authDownloadRequest(`/admin/bookings/${bookingId}/application-form`, accessToken);
+}
+
+/** Generated Provisional Allotment Letter — booked plots only (409 booking_not_booked otherwise). */
 export function downloadAllotmentLetter(accessToken: string, bookingId: string) {
   return authDownloadRequest(`/admin/bookings/${bookingId}/allotment-letter`, accessToken);
 }
 
+/** Generated Demand Letter from the live payment schedule — booked plots only. */
+export function downloadDemandLetter(accessToken: string, bookingId: string) {
+  return authDownloadRequest(`/admin/bookings/${bookingId}/demand-letter`, accessToken);
+}
+
 export type RevenueStatus = "captured" | "cash_recorded" | "refund_pending" | "refunded";
-export type RevenueMethod = "razorpay" | "cash" | "rtgs_neft";
+export type RevenueMethod = "razorpay" | "zoho" | "cash" | "rtgs_neft";
 
 export interface RevenueSummaryParams {
   date_from?: string;
@@ -692,7 +705,8 @@ export interface ApiRevenueTransaction {
 }
 
 export interface ApiRevenueTransactionDetail extends ApiRevenueTransaction {
-  razorpay_payment_id: string | null;
+  gateway_payment_id?: string | null;
+  razorpay_payment_id?: string | null;
   utr_number: string | null;
 }
 
@@ -738,7 +752,7 @@ export function getRevenueTransaction(
   return authRequest<ApiRevenueTransactionDetail>(`/admin/revenue/transactions/${id}`, accessToken);
 }
 
-export type RefundMethod = "razorpay" | "cash" | "rtgs_neft";
+export type RefundMethod = "razorpay" | "zoho" | "cash" | "rtgs_neft";
 export type RefundStatus =
   | "processing"
   | "completed"
@@ -764,8 +778,10 @@ export interface ApiRefundListItem {
 }
 
 export interface ApiRefundDetail extends ApiRefundListItem {
-  razorpay_payment_id: string | null;
-  razorpay_refund_id: string | null;
+  gateway_payment_id?: string | null;
+  razorpay_payment_id?: string | null;
+  gateway_refund_id?: string | null;
+  razorpay_refund_id?: string | null;
   utr_number: string | null;
   refund_note: string | null;
   created_at: string;

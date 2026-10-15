@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { BackLink } from "../../components/ui/BackLink";
 import { Button } from "../../components/ui/Button";
@@ -10,6 +10,8 @@ import {
   approveBooking,
   cancelBookedPlot,
   downloadAllotmentLetter,
+  downloadApplicationForm,
+  downloadDemandLetter,
   getBooking,
   rejectBooking,
   type ApiBookingDetail,
@@ -21,6 +23,62 @@ import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { PaymentPlanCard } from "./PaymentPlanCard";
 
 type ModalKind = "approve" | "reject" | "cancelPlot" | null;
+
+type BookingDocumentKind = "application" | "allotment" | "demand";
+
+const BOOKING_DOCUMENTS: {
+  kind: BookingDocumentKind;
+  label: string;
+  description: string;
+  download: typeof downloadApplicationForm;
+  filenamePrefix: string;
+  /** Generated letters only exist once the plot is booked. */
+  bookedOnly: boolean;
+}[] = [
+  {
+    kind: "application",
+    label: "Application Form",
+    description: "The booking application form signed and uploaded by the customer.",
+    download: downloadApplicationForm,
+    filenamePrefix: "Booking-Application-Form",
+    bookedOnly: false,
+  },
+  {
+    kind: "allotment",
+    label: "Allotment Letter",
+    description: "Provisional allotment letter with the plot details and payment schedule.",
+    download: downloadAllotmentLetter,
+    filenamePrefix: "Allotment-Letter",
+    bookedOnly: true,
+  },
+  {
+    kind: "demand",
+    label: "Demand Letter",
+    description: "Installments due, amount received and outstanding balance.",
+    download: downloadDemandLetter,
+    filenamePrefix: "Demand-Letter",
+    bookedOnly: true,
+  },
+];
+
+function documentErrorMessage(err: unknown, doc: (typeof BOOKING_DOCUMENTS)[number]) {
+  if (err instanceof ApiError && err.code === "not_uploaded") {
+    return doc.kind === "application"
+      ? "The customer has not uploaded the booking application form yet."
+      : `The ${doc.label.toLowerCase()} is generated from the booking application form, which has not been uploaded for this booking yet.`;
+  }
+  if (err instanceof ApiError && err.code === "booking_not_booked") {
+    return `The ${doc.label.toLowerCase()} is available once the booking is approved.`;
+  }
+  if (err instanceof ApiError && (err.status === 404 || err.code === "not_found")) {
+    return doc.kind === "application"
+      ? "The customer has not uploaded the booking application form yet."
+      : `The ${doc.label.toLowerCase()} could not be found for this booking.`;
+  }
+  if (err instanceof ApiError && err.status === 403) return "You do not have permission to download this document.";
+  if (err instanceof ApiError && err.message) return err.message;
+  return `Could not download the ${doc.label.toLowerCase()}. Please try again.`;
+}
 
 function loadErrorMessage(err: unknown) {
   if (err instanceof ApiError) {
@@ -44,26 +102,33 @@ export function BookingDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
-  const [downloadingLetter, setDownloadingLetter] = useState(false);
-  const [letterError, setLetterError] = useState<string | null>(null);
+  const [downloadingDocument, setDownloadingDocument] = useState<BookingDocumentKind | null>(null);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const bookingRequestVersion = useRef(0);
+
+  useEffect(() => {
+    setDocumentError(null);
+    setDownloadingDocument(null);
+  }, [id]);
 
   const fetchBooking = useCallback(() => {
     if (!id || !accessToken) return;
+    const requestVersion = ++bookingRequestVersion.current;
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
 
     getBooking(accessToken, id)
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled || requestVersion !== bookingRequestVersion.current) return;
         setBooking(result);
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || requestVersion !== bookingRequestVersion.current) return;
         setLoadError(loadErrorMessage(err));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && requestVersion === bookingRequestVersion.current) setLoading(false);
       });
 
     return () => {
@@ -93,6 +158,7 @@ export function BookingDetailPage() {
   async function submitDecision(kind: "approve" | "reject" | "cancelPlot") {
     if (!accessToken || !booking) return;
     setSubmitting(true);
+    setDocumentError(null);
     setActionError(null);
 
     const action = kind === "approve" ? approveBooking : kind === "reject" ? rejectBooking : cancelBookedPlot;
@@ -134,21 +200,22 @@ export function BookingDetailPage() {
     }
   }
 
-  async function handleDownloadAllotmentLetter() {
+  async function handleDownloadDocument(doc: (typeof BOOKING_DOCUMENTS)[number]) {
     if (!accessToken || !booking) return;
-    setDownloadingLetter(true);
-    setLetterError(null);
+    const requestedBookingId = booking.id;
+    const requestVersion = bookingRequestVersion.current;
+    setDownloadingDocument(doc.kind);
+    setDocumentError(null);
     try {
-      const { blob, filename } = await downloadAllotmentLetter(accessToken, booking.id);
-      saveBlob(blob, filename ?? `Allotment-Letter-${booking.id}.pdf`);
+      const { blob, filename } = await doc.download(accessToken, requestedBookingId);
+      if (requestedBookingId !== id || requestedBookingId !== booking?.id || requestVersion !== bookingRequestVersion.current) return;
+      saveBlob(blob, filename ?? `${doc.filenamePrefix}-${requestedBookingId}.pdf`);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "not_uploaded") {
-        setLetterError("The booking application has not been uploaded for this booking yet.");
-      } else {
-        setLetterError("Could not download the allotment letter. Please try again.");
+      if (requestedBookingId === id && requestedBookingId === booking?.id && requestVersion === bookingRequestVersion.current) {
+        setDocumentError(documentErrorMessage(err, doc));
       }
     } finally {
-      setDownloadingLetter(false);
+      if (requestedBookingId === id && requestedBookingId === booking?.id && requestVersion === bookingRequestVersion.current) setDownloadingDocument(null);
     }
   }
 
@@ -160,7 +227,9 @@ export function BookingDetailPage() {
     ? { label: "UTR Number", value: booking.utr_number }
     : booking?.cheque_number
       ? { label: "Cheque Number", value: booking.cheque_number }
-      : { label: "Reference", value: booking?.razorpay_payment_id || "-" };
+      : { label: "Reference", value: booking?.gateway_payment_id || booking?.razorpay_payment_id || "-" };
+  const hasApplicationForm = (booking?.payment_schedule?.length ?? 0) > 0;
+  const availableDocuments = BOOKING_DOCUMENTS.filter((doc) => !doc.bookedOnly || booking?.status === "booked");
 
   return (
     <div>
@@ -292,6 +361,7 @@ export function BookingDetailPage() {
                     booking={booking}
                     onUpdated={(result) => {
                       setBooking(result);
+                      setDocumentError(null);
                       setActionError(null);
                       setActionNotice(null);
                     }}
@@ -388,24 +458,42 @@ export function BookingDetailPage() {
                 </Card>
               )}
 
-              {booking.status === "booked" && (
-                <Card className="p-5">
-                  <h3 className="mb-2 text-sm font-bold text-text">Allotment Letter</h3>
-                  <p className="mb-3 text-xs text-text-muted">
-                    Official allotment letter for Unit {booking.unit_number}, {booking.project_name}.
+              <Card className="p-5">
+                <h3 className="mb-1 text-sm font-bold text-text">Booking Documents</h3>
+                <p className="mb-4 text-xs text-text-muted">
+                  Unit {booking.unit_number}, {booking.project_name}
+                </p>
+                {documentError && (
+                  <div className="mb-3 rounded-xl border border-danger/30 bg-danger-bg p-3 text-xs text-danger">
+                    {documentError}
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {availableDocuments.map((doc) => (
+                    <div key={doc.kind} className="rounded-xl border border-border p-3">
+                      <p className="text-sm font-semibold text-text">{doc.label}</p>
+                      <p className="mb-2 text-xs text-text-muted">{doc.description}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        disabled={downloadingDocument !== null || (doc.bookedOnly && !hasApplicationForm)}
+                        onClick={() => handleDownloadDocument(doc)}
+                      >
+                        {downloadingDocument === doc.kind ? "Preparing..." : `Download ${doc.label}`}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {booking.status === "pending_kyc_review" && (
+                  <p className="mt-3 text-xs text-text-soft">
+                    Allotment and demand letters become available once the booking is approved.
                   </p>
-                  {letterError && <p className="mb-3 text-xs text-danger">{letterError}</p>}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    disabled={downloadingLetter}
-                    onClick={handleDownloadAllotmentLetter}
-                  >
-                    {downloadingLetter ? "Preparing..." : "Download Allotment Letter"}
-                  </Button>
-                </Card>
-              )}
+                )}
+                {booking.status === "booked" && !hasApplicationForm && (
+                  <p className="mt-3 text-xs text-text-soft">Upload the booking application form to enable the allotment and demand letters.</p>
+                )}
+              </Card>
             </div>
           </div>
         </>

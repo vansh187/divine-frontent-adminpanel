@@ -18,6 +18,7 @@ import { RevenuePage } from "./features/revenue/RevenuePage";
 import { AdminProfilePage } from "./features/profile/AdminProfilePage";
 import { HelpPage } from "./features/misc/HelpPage";
 import { NotFoundPage } from "./features/misc/NotFoundPage";
+import { AdminApprovalsPage } from "./features/approvals/AdminApprovalsPage";
 
 function App() {
   return (
@@ -48,6 +49,7 @@ function App() {
         <Route path="refunds" element={<RefundsPage />} />
         <Route path="revenue" element={<RevenuePage />} />
         <Route path="profile" element={<AdminProfilePage />} />
+        <Route path="approvals" element={<AdminApprovalsPage />} />
         <Route path="help" element={<HelpPage />} />
       </Route>
 

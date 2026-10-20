@@ -28,8 +28,11 @@ interface OtpFieldErrors {
 
 function signupErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 400) return "An admin with that email or employee ID already exists.";
-    if (err.status === 422) return "Please check the signup details and try again.";
+    if (err.code === "employee_id_taken") return "That employee ID is already registered. Check it or contact a super admin.";
+    if (err.code === "email_taken") return "That email address is already registered. Try signing in or use another email.";
+    if (err.code === "otp_email_failed") return "We couldn't send the verification email. Please wait a moment and try again.";
+    if (err.code === "too_many_requests" || err.code === "rate_limited") return "Too many signup attempts. Please wait a few minutes and try again.";
+    if (err.status === 422) return "Check that your email uses @divinevisioninfra.com, your employee ID starts with DV, and your password has at least 8 characters.";
   }
   return "Something went wrong. Please try again.";
 }
@@ -47,6 +50,8 @@ function verifyErrorMessage(err: unknown): string {
         return "No pending signup was found for this email.";
       case "too_many_attempts":
         return "Too many incorrect attempts. Try again later.";
+      case "rate_limited":
+        return "Too many verification attempts. Please wait a few minutes and try again.";
     }
   }
   return "Something went wrong. Please try again.";
@@ -60,6 +65,7 @@ function resendErrorMessage(err: unknown): string {
       case "not_found":
         return "No pending signup was found for this email.";
       case "too_many_requests":
+      case "rate_limited":
         return "Please wait a moment before requesting another code.";
     }
   }
@@ -75,7 +81,7 @@ export function SignupPage() {
   const [email, setEmail] = useState(state?.verifyEmail ?? "");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [step, setStep] = useState<"signup" | "otp">(state?.verifyEmail ? "otp" : "signup");
+  const [step, setStep] = useState<"signup" | "otp" | "pending">(state?.verifyEmail ? "otp" : "signup");
   const [otp, setOtp] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -133,9 +139,13 @@ export function SignupPage() {
       startCooldown();
     } catch (err) {
       if (err instanceof ApiError && err.status === 422) {
+        const validationFields = err.validationErrors?.map((item) => item.loc.at(-1));
         setFieldErrors((prev) => ({
           ...prev,
-          employeeId: "Employee ID must start with \"DV\" (e.g. DV1024).",
+          ...(validationFields?.some((field) => field === "employee_id") ? { employeeId: "Employee ID must start with \"DV\" (e.g. DV1024)." } : {}),
+          ...(validationFields?.some((field) => field === "email") ? { email: "Use your @divinevisioninfra.com work email." } : {}),
+          ...(validationFields?.some((field) => field === "password") ? { password: "Password must be at least 8 characters." } : {}),
+          ...(!validationFields?.length ? { employeeId: "Check the employee ID, work email, and password requirements." } : {}),
         }));
       } else {
         setFormError(signupErrorMessage(err));
@@ -158,13 +168,28 @@ export function SignupPage() {
 
     setSubmitting(true);
     try {
-      await verifySignup({ email: email.trim(), otp: otp.trim() });
-      navigate("/admin/login", { state: { verified: true } });
+      const result = await verifySignup({ email: email.trim(), otp: otp.trim() });
+      if (result.message === "pending_approval") {
+        setStep("pending");
+        setSuccessMessage("Your email is verified. Your account is waiting for super admin approval. You'll get an email once it's approved.");
+      } else if (result.message === "approved") {
+        navigate("/admin/login", { state: { verified: true } });
+      } else {
+        setFormError("We couldn't confirm your account status. Please contact a super admin.");
+      }
     } catch (err) {
       setFormError(verifyErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (step === "pending") {
+    return <AuthLayout title="Pending approval" subtitle="Email verified">
+      <div className="rounded-xl border border-success/30 bg-success-bg p-4 text-sm text-success">{successMessage}</div>
+      <p className="mt-5 text-center text-sm text-text-muted">You can close this page. We’ll email you after a super admin reviews your request.</p>
+      <Link to="/admin/login" className="mt-5 block text-center font-semibold text-gold-dark hover:underline">Return to sign in</Link>
+    </AuthLayout>;
   }
 
   async function handleResendOtp() {

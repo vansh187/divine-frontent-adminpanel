@@ -120,10 +120,10 @@ export function login(payload: { email: string; password: string }): Promise<Tok
 }
 
 export function refresh(refreshToken: string): Promise<RefreshResponse> {
-  return request<RefreshResponse>("/admin/refresh", {
+  return handleUnauthorized(request<RefreshResponse>("/admin/refresh", {
     method: "POST",
     body: JSON.stringify({ refresh_token: refreshToken }),
-  });
+  }));
 }
 
 export function forgotPassword(email: string): Promise<{ message: string }> {
@@ -204,10 +204,41 @@ export interface ApiAdminProfile {
   phone: string | null;
   avatar_url: string | null;
   initials: string;
+  is_super_admin: boolean;
+  approval_status: "pending" | "approved" | "rejected";
   created_by: string | null;
   created_date: string | null;
   last_updated_by: string | null;
   last_updated_date: string | null;
+}
+
+export type AdminApprovalStatus = "pending" | "approved" | "rejected";
+export interface ApiAdminApproval {
+  id: string;
+  full_name: string;
+  employee_id: string;
+  email: string;
+  approval_status: AdminApprovalStatus;
+  approval_decided_by: string | null;
+  approval_decided_date: string | null;
+  approval_note: string | null;
+  created_date: string;
+}
+
+export function listAdminApprovals(accessToken: string, status: AdminApprovalStatus) {
+  return authRequest<{ items: ApiAdminApproval[] }>(`/admin/approvals?status=${status}`, accessToken);
+}
+
+export function decideAdminApproval(
+  accessToken: string,
+  id: string,
+  decision: "approve" | "reject",
+  note?: string
+) {
+  return authRequest<ApiAdminApproval>(`/admin/approvals/${encodeURIComponent(id)}/${decision}`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(note ? { note } : {}),
+  });
 }
 
 export function getAdminProfile(accessToken: string): Promise<ApiAdminProfile> {

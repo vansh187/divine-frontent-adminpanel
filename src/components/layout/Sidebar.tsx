@@ -26,7 +26,7 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () => void }) {
-  const { logout } = useAuth();
+  const { logout, admin } = useAuth();
   const navigate = useNavigate();
 
   function handleLogout() {
@@ -56,7 +56,7 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate?: () =
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-2">
-        {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+        {[...NAV_ITEMS, ...(admin?.isSuperAdmin ? [{ to: "/admin/approvals", label: "Admin Approvals", icon: IconUser }] : [])].map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

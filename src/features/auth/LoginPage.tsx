@@ -22,6 +22,7 @@ export function LoginPage() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const state = location.state as {
@@ -41,6 +42,7 @@ export function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNeedsVerification(false);
 
     const errors: FieldErrors = {
       email: validateAdminEmail(email),
@@ -56,10 +58,19 @@ export function LoginPage() {
       await login(email.trim(), password);
       navigate(returnTo, { replace: true });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      if (err instanceof ApiError && err.code === "invalid_credentials") {
         setError("Incorrect email or password.");
       } else if (err instanceof ApiError && err.status === 403 && err.code === "email_not_verified") {
-        navigate("/admin/signup", { state: { verifyEmail: email.trim() } });
+        setError("Please verify your email first.");
+        setNeedsVerification(true);
+      } else if (err instanceof ApiError && err.status === 403 && err.code === "approval_pending") {
+        setError("Your account is awaiting super admin approval.");
+      } else if (err instanceof ApiError && err.status === 403 && err.code === "approval_rejected") {
+        setError("Your admin access request was not approved. Contact a super admin.");
+      } else if (err instanceof ApiError && (err.code === "rate_limited" || err.code === "too_many_requests")) {
+        setError("Too many sign-in attempts. Please wait a few minutes and try again.");
+      } else if (err instanceof ApiError && err.status === 422) {
+        setError("Enter a valid work email and password, then try again.");
       } else {
         setError("Something went wrong. Please try again.");
       }
@@ -105,6 +116,11 @@ export function LoginPage() {
           <div className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
             {error}
           </div>
+        )}
+        {needsVerification && (
+          <button type="button" onClick={() => navigate("/admin/signup", { state: { verifyEmail: email.trim() } })} className="-mt-2 text-sm font-semibold text-gold-dark hover:underline">
+            Open email verification and resend an OTP
+          </button>
         )}
 
         <TextField

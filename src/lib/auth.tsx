@@ -11,6 +11,7 @@ interface AuthAdmin {
   employeeId: string;
   initials: string;
   avatarUrl: string | null;
+  isSuperAdmin: boolean;
 }
 
 interface AuthContextValue {
@@ -118,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       employeeId: profile.employee_id,
       initials: profile.initials,
       avatarUrl: profile.avatar_url,
+      isSuperAdmin: profile.is_super_admin,
     };
   }, [profile]);
 

@@ -14,7 +14,9 @@ import {
   downloadDemandLetter,
   getBooking,
   rejectBooking,
+  uploadBookingDocument,
   type ApiBookingDetail,
+  type BookingDocumentType,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { saveBlob } from "../../lib/download";
@@ -25,6 +27,96 @@ import { PaymentPlanCard } from "./PaymentPlanCard";
 type ModalKind = "approve" | "reject" | "cancelPlot" | null;
 
 type BookingDocumentKind = "application" | "allotment" | "demand";
+
+const REQUIRED_KYC_DOCUMENT_TYPES: BookingDocumentType[] = [
+  "aadhaar_front",
+  "aadhaar_back",
+  "pan_card",
+  "applicant_photo",
+  "cancelled_cheque",
+];
+
+const KYC_DOCUMENT_LABELS: Record<BookingDocumentType, string> = {
+  aadhaar_front: "Aadhaar Card - Front",
+  aadhaar_back: "Aadhaar Card - Back",
+  pan_card: "PAN Card",
+  applicant_photo: "Applicant Photo",
+  cancelled_cheque: "Cancelled Cheque",
+};
+
+const MAX_KYC_FILE_SIZE = 10 * 1024 * 1024;
+const KYC_FILE_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+};
+
+function acceptedKycFileTypes(documentType: BookingDocumentType) {
+  return documentType === "cancelled_cheque"
+    ? ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+    : ".jpg,.jpeg,.png,image/jpeg,image/png";
+}
+
+function retryDelaySeconds(retryAfter: string | null) {
+  if (!retryAfter) return 60;
+  if (/^\d+(?:\.\d+)?$/.test(retryAfter)) return Math.max(1, Math.ceil(Number(retryAfter)));
+  const retryAt = Date.parse(retryAfter);
+  return Number.isFinite(retryAt) ? Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)) : 60;
+}
+
+function validateKycFile(file: File, documentType: BookingDocumentType) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const expectedType = KYC_FILE_TYPES[extension];
+  const pdfAllowed = documentType === "cancelled_cheque";
+  if (!expectedType || (extension === "pdf" && !pdfAllowed) || file.type !== expectedType) {
+    return pdfAllowed
+      ? "Choose a PDF, JPG, JPEG, or PNG file."
+      : "Choose a JPG, JPEG, or PNG image. PDF is only accepted for a cancelled cheque.";
+  }
+  if (file.size === 0) return "The selected file is empty.";
+  if (file.size > MAX_KYC_FILE_SIZE) return "The file must be 10 MB or smaller.";
+  return null;
+}
+
+function uploadErrorMessage(err: unknown) {
+  if (err instanceof ApiError) {
+    let message: string;
+    if (err.status === 401) message = "Your session has expired. Please sign in again.";
+    else if (err.status === 403) message = "Your admin account is not permitted to upload documents.";
+    else if (err.status === 404) message = "This booking could not be found.";
+    else if (err.status === 409 && err.code === "idempotency_conflict") message = "This upload key was already used for different content. Choose the file again and retry.";
+    else if (err.status === 409 || err.code === "version_conflict" || err.code === "booking_not_uploadable") {
+      message = err.message || "This booking changed or can no longer accept uploads. The latest details have been loaded; review them before retrying.";
+    }
+    else if (err.status === 413 || err.code === "file_too_large") message = "The file must be 10 MiB or smaller.";
+    else if (err.status === 415 || err.code === "unsupported_media_type") message = err.message || "This file type is not allowed for the selected document.";
+    else if (err.status === 429) {
+      const retryAt = err.retryAfter
+        ? /^\d+(?:\.\d+)?$/.test(err.retryAfter)
+          ? Date.now() + Number(err.retryAfter) * 1000
+          : Date.parse(err.retryAfter)
+        : NaN;
+      const waitSeconds = Number.isFinite(retryAt) ? Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)) : 60;
+      message = `Too many upload attempts. Please try again in about ${waitSeconds} seconds.`;
+    }
+    else if (err.status >= 500) message = err.message || "The document service is temporarily unavailable. Please try again.";
+    else message = err.message || "Could not upload this document. Please try again.";
+
+    return err.requestId ? `${message} (Request ID: ${err.requestId})` : message;
+  }
+  if (err instanceof TypeError) return "Could not connect to the document service. Check your connection and try again.";
+  return "Could not upload this document. Please try again.";
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 const BOOKING_DOCUMENTS: {
   kind: BookingDocumentKind;
@@ -107,12 +199,40 @@ export function BookingDetailPage() {
 
   const [downloadingDocument, setDownloadingDocument] = useState<BookingDocumentKind | null>(null);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [selectedKycFiles, setSelectedKycFiles] = useState<Record<string, File | null>>({});
+  const [kycNotes, setKycNotes] = useState<Record<string, string>>({});
+  const [kycUploadErrors, setKycUploadErrors] = useState<Record<string, string>>({});
+  const [uploadingKycType, setUploadingKycType] = useState<BookingDocumentType | null>(null);
+  const [uploadRetryUntil, setUploadRetryUntil] = useState(0);
+  const [uploadRetrySeconds, setUploadRetrySeconds] = useState(0);
+  const uploadKeys = useRef<Record<string, string>>({});
+  const kycFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const bookingRequestVersion = useRef(0);
 
   useEffect(() => {
     setDocumentError(null);
     setDownloadingDocument(null);
+    setSelectedKycFiles({});
+    setKycNotes({});
+    setKycUploadErrors({});
+    setUploadingKycType(null);
+    uploadKeys.current = {};
   }, [id]);
+
+  useEffect(() => {
+    if (!uploadRetryUntil) {
+      setUploadRetrySeconds(0);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((uploadRetryUntil - Date.now()) / 1000));
+      setUploadRetrySeconds(remaining);
+      if (remaining === 0) setUploadRetryUntil(0);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [uploadRetryUntil]);
 
   const fetchBooking = useCallback(() => {
     if (!id || !accessToken) return;
@@ -222,8 +342,130 @@ export function BookingDetailPage() {
     }
   }
 
+  async function handleKycUpload(documentType: BookingDocumentType) {
+    const file = selectedKycFiles[documentType];
+    if (!accessToken || !booking || !file) return;
+    const validationError = validateKycFile(file, documentType);
+    if (validationError) {
+      setKycUploadErrors((current) => ({ ...current, [documentType]: validationError }));
+      return;
+    }
+
+    const bookingId = booking.id;
+    const requestVersion = bookingRequestVersion.current;
+    const idempotencyKey = uploadKeys.current[documentType] ?? createIdempotencyKey();
+    uploadKeys.current[documentType] = idempotencyKey;
+    setUploadingKycType(documentType);
+    setKycUploadErrors((current) => ({ ...current, [documentType]: "" }));
+    setActionError(null);
+    setActionNotice(null);
+
+    try {
+      const updated = await uploadBookingDocument(
+        accessToken,
+        bookingId,
+        documentType,
+        file,
+        booking.version,
+        kycNotes[documentType] ?? "",
+        idempotencyKey
+      );
+      if (bookingId !== id || requestVersion !== bookingRequestVersion.current) return;
+      setBooking(updated);
+      setSelectedKycFiles((current) => ({ ...current, [documentType]: null }));
+      setKycNotes((current) => ({ ...current, [documentType]: "" }));
+      setKycUploadErrors((current) => ({ ...current, [documentType]: "" }));
+      delete uploadKeys.current[documentType];
+      if (kycFileInputs.current[documentType]) kycFileInputs.current[documentType]!.value = "";
+      setActionNotice(`${updated.documents.find((doc) => doc.document_type === documentType)?.label ?? "Document"} uploaded. Review it before approving KYC.`);
+    } catch (err) {
+      if (bookingId !== id || requestVersion !== bookingRequestVersion.current) return;
+      if (err instanceof ApiError && err.code === "document_saved_refresh_failed") {
+        const refreshVersion = ++bookingRequestVersion.current;
+        setKycUploadErrors((current) => ({
+          ...current,
+          [documentType]: err.requestId
+            ? `The document was saved. Refreshing booking details… (Request ID: ${err.requestId})`
+            : "The document was saved. Refreshing booking details…",
+        }));
+        getBooking(accessToken, bookingId)
+          .then((updated) => {
+            if (bookingId !== id || refreshVersion !== bookingRequestVersion.current) return;
+            setBooking(updated);
+            setSelectedKycFiles((current) => ({ ...current, [documentType]: null }));
+            setKycNotes((current) => ({ ...current, [documentType]: "" }));
+            setKycUploadErrors((current) => ({ ...current, [documentType]: "" }));
+            delete uploadKeys.current[documentType];
+            if (kycFileInputs.current[documentType]) kycFileInputs.current[documentType]!.value = "";
+            setActionNotice("Document saved. Review it before approving KYC.");
+          })
+          .catch((refreshError) => {
+            if (bookingId !== id || refreshVersion !== bookingRequestVersion.current) return;
+            const requestId = refreshError instanceof ApiError ? refreshError.requestId : null;
+            setKycUploadErrors((current) => ({
+              ...current,
+              [documentType]: requestId
+                ? `The document was saved, but booking details could not be refreshed. Retry this same upload or refresh the booking. (Request ID: ${requestId})`
+                : "The document was saved, but booking details could not be refreshed. Retry this same upload or refresh the booking.",
+            }));
+          });
+        return;
+      }
+      setKycUploadErrors((current) => ({ ...current, [documentType]: uploadErrorMessage(err) }));
+      if (err instanceof ApiError && err.status === 409) {
+        delete uploadKeys.current[documentType];
+        fetchBooking();
+      }
+      if (err instanceof ApiError && err.status === 429) {
+        setUploadRetryUntil(Date.now() + retryDelaySeconds(err.retryAfter) * 1000);
+      }
+    } finally {
+      if (bookingId === id) setUploadingKycType(null);
+    }
+  }
+
+  async function handleKycPreview(documentType: BookingDocumentType) {
+    if (!accessToken || !booking) return;
+    const bookingId = booking.id;
+    const requestVersion = bookingRequestVersion.current;
+    const previewWindow = window.open("about:blank", "_blank");
+    if (!previewWindow) {
+      setKycUploadErrors((current) => ({ ...current, [documentType]: "Allow pop-ups to open the secure document preview." }));
+      return;
+    }
+    previewWindow.opener = null;
+    setKycUploadErrors((current) => ({ ...current, [documentType]: "" }));
+    try {
+      const latest = await getBooking(accessToken, bookingId);
+      if (bookingId !== id || requestVersion !== bookingRequestVersion.current) {
+        previewWindow.close();
+        return;
+      }
+      if (latest.version !== booking.version) uploadKeys.current = {};
+      setBooking(latest);
+      const previewUrl = latest.documents.find((doc) => doc.document_type === documentType)?.preview_url;
+      if (!previewUrl) {
+        previewWindow.close();
+        setKycUploadErrors((current) => ({ ...current, [documentType]: "Preview is unavailable. Refresh the booking and try again." }));
+        return;
+      }
+      previewWindow.location.replace(previewUrl);
+    } catch (err) {
+      previewWindow.close();
+      if (bookingId !== id || requestVersion !== bookingRequestVersion.current) return;
+      const requestId = err instanceof ApiError ? err.requestId : null;
+      setKycUploadErrors((current) => ({
+        ...current,
+        [documentType]: requestId
+          ? `Could not load the latest secure preview link. (Request ID: ${requestId})`
+          : "Could not load the latest secure preview link. Please try again.",
+      }));
+    }
+  }
+
   const isReviewable = booking?.status === "pending_kyc_review";
-  const allDocumentsUploaded = (booking?.documents ?? []).every((doc) => doc.uploaded);
+  const documentsByType = new Map((booking?.documents ?? []).map((doc) => [doc.document_type, doc]));
+  const allDocumentsUploaded = REQUIRED_KYC_DOCUMENT_TYPES.every((type) => documentsByType.get(type)?.uploaded === true);
   const canApprove = isReviewable && allDocumentsUploaded;
   // Same truthiness check for label and value so an empty string never yields a blank reference.
   const paymentReference = booking?.utr_number
@@ -377,54 +619,116 @@ export function BookingDetailPage() {
                 </SectionErrorBoundary>
               )}
 
-              <Card className="p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-text">KYC Document Checklist</h3>
-                  <StatusBadge status={booking.kyc_status.toUpperCase()} />
-                </div>
-                <div className="space-y-3">
-                  {(booking.documents ?? []).map((doc) => (
-                    <div
-                      key={doc.document_type}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-muted text-gold-dark">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h8l4 4v14H7z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 3v4h4" />
-                          </svg>
+              <SectionErrorBoundary title="KYC Document Checklist" resetKey={booking.id}>
+                <Card className="p-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-text">KYC Document Checklist</h3>
+                    <StatusBadge status={booking.kyc_status.toUpperCase()} />
+                  </div>
+                  <p className="mb-4 text-xs text-text-muted">
+                    Upload or replace a document on the customer&apos;s behalf. Aadhaar, PAN, and photo documents must be JPG, JPEG, or PNG images. PDF is accepted only for a cancelled cheque. Maximum size: 10 MiB.
+                  </p>
+                  <div className="space-y-3">
+                    {REQUIRED_KYC_DOCUMENT_TYPES.map((documentType) => {
+                      const doc = documentsByType.get(documentType);
+                      const selectedFile = selectedKycFiles[documentType] ?? null;
+                      const isUploading = uploadingKycType === documentType;
+                      const error = kycUploadErrors[documentType];
+                      return (
+                        <div key={documentType} className="rounded-xl border border-border p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-muted text-gold-dark">
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h8l4 4v14H7z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 3v4h4" />
+                                </svg>
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-text">{doc?.label ?? KYC_DOCUMENT_LABELS[documentType]}</p>
+                                <p className="text-xs text-text-muted">
+                                  {doc?.uploaded ? `Uploaded ${formatDateTime(doc.uploaded_at)}` : "Not uploaded yet"}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <StatusBadge status="PENDING" label={doc?.uploaded ? "Uploaded" : "Missing"} />
+                              {doc?.uploaded && doc.preview_url && (
+                                <Button variant="outline" size="sm" onClick={() => void handleKycPreview(documentType)}>
+                                  Preview securely
+                                </Button>
+                              )}
+                              {doc?.uploaded && !doc.preview_url && (
+                                <span className="text-xs text-text-muted">Preview unavailable; refresh booking</span>
+                              )}
+                              {isReviewable && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={uploadingKycType !== null || uploadRetrySeconds > 0}
+                                  onClick={() => kycFileInputs.current[documentType]?.click()}
+                                >
+                                  {doc?.uploaded ? "Choose replacement" : "Choose file"}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <input
+                            ref={(element) => { kycFileInputs.current[documentType] = element; }}
+                            type="file"
+                            accept={acceptedKycFileTypes(documentType)}
+                            className="sr-only"
+                            aria-label={`Choose ${doc?.label ?? KYC_DOCUMENT_LABELS[documentType]} file`}
+                            disabled={!isReviewable || uploadingKycType !== null}
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0] ?? null;
+                              setSelectedKycFiles((current) => ({ ...current, [documentType]: file }));
+                              setKycUploadErrors((current) => ({ ...current, [documentType]: file ? validateKycFile(file, documentType) ?? "" : "" }));
+                              delete uploadKeys.current[documentType];
+                            }}
+                          />
+                          {selectedFile && (
+                            <div className="mt-3 space-y-2 rounded-lg bg-surface-muted p-3">
+                              <p className="break-all text-xs text-text-muted">Selected: {selectedFile.name}</p>
+                              <label className="block text-xs font-medium text-text-muted" htmlFor={`kyc-note-${documentType}`}>
+                                Upload note (optional)
+                              </label>
+                              <input
+                                id={`kyc-note-${documentType}`}
+                                type="text"
+                                maxLength={500}
+                                value={kycNotes[documentType] ?? ""}
+                                onChange={(event) => {
+                                  setKycNotes((current) => ({ ...current, [documentType]: event.target.value }));
+                                  delete uploadKeys.current[documentType];
+                                }}
+                                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-gold focus:outline-none"
+                                placeholder="For example: Replacement supplied after name mismatch"
+                                disabled={isUploading}
+                              />
+                              <Button
+                                size="sm"
+                                disabled={isUploading || Boolean(error) || uploadRetrySeconds > 0}
+                                onClick={() => void handleKycUpload(documentType)}
+                              >
+                                {isUploading
+                                  ? "Uploading…"
+                                  : uploadRetrySeconds > 0
+                                    ? `Try again in ${uploadRetrySeconds}s`
+                                    : `Upload ${doc?.uploaded ? "replacement" : "document"}`}
+                              </Button>
+                            </div>
+                          )}
+                          {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
                         </div>
-                        <div>
-                          <p className="text-sm font-semibold text-text">{doc.label}</p>
-                          <p className="text-xs text-text-muted">
-                            {doc.uploaded ? `Uploaded ${formatDateTime(doc.uploaded_at)}` : "Not uploaded yet"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={doc.uploaded ? "VERIFIED" : "PENDING"} label={doc.uploaded ? "Uploaded" : "Missing"} />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={!doc.uploaded || !doc.preview_url}
-                          onClick={() => {
-                            if (doc.preview_url) window.open(doc.preview_url, "_blank", "noopener,noreferrer");
-                          }}
-                        >
-                          Preview
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {(booking.documents ?? []).length === 0 && (
-                    <p className="text-sm text-text-muted">No documents on file yet.</p>
-                  )}
-                </div>
-                <p className="mt-3 text-xs text-text-soft">
-                  Document preview requests a short-lived download URL and is never cached in browser storage.
-                </p>
-              </Card>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-xs text-text-soft">
+                    Uploading does not approve KYC. Review each document and approve the booking only after verification.
+                  </p>
+                </Card>
+              </SectionErrorBoundary>
             </div>
 
             <div className="space-y-6">

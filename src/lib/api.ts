@@ -1,6 +1,7 @@
-const API_BASE_URL =
+const API_BASE_URL = (
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  "https://divinevisioninfrabackend-301k.onrender.com";
+  "https://divinevisioninfrabackend-301k.onrender.com"
+).replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
 
 export interface FastApiValidationError {
   type: string;
@@ -12,14 +13,25 @@ export interface FastApiValidationError {
 export class ApiError extends Error {
   status: number;
   code?: string;
+  retryAfter: string | null;
   /** Raw `detail` from a FastAPI 422 validation body, when the error is shaped that way. */
   validationErrors?: FastApiValidationError[];
+  requestId: string | null;
 
-  constructor(status: number, message: string, code?: string, validationErrors?: FastApiValidationError[]) {
+  constructor(
+    status: number,
+    message: string,
+    code?: string,
+    validationErrors?: FastApiValidationError[],
+    retryAfter: string | null = null,
+    requestId: string | null = null
+  ) {
     super(message);
     this.status = status;
     this.code = code;
     this.validationErrors = validationErrors;
+    this.retryAfter = retryAfter;
+    this.requestId = requestId;
   }
 }
 
@@ -40,7 +52,14 @@ async function parseResponse<T>(res: Response): Promise<T> {
           })
           .filter(Boolean)
           .join(" ") || `Request failed with status ${res.status}`;
-      throw new ApiError(res.status, message, detail[0]?.type, detail);
+      throw new ApiError(
+        res.status,
+        message,
+        detail[0]?.type,
+        detail,
+        res.headers.get("Retry-After"),
+        res.headers.get("X-Request-ID")
+      );
     }
 
     const code = typeof detail === "string" ? detail : detail?.code;
@@ -48,7 +67,14 @@ async function parseResponse<T>(res: Response): Promise<T> {
       (typeof detail === "string" ? detail : detail?.message) ??
       body?.message ??
       (textBody.trim() || `Request failed with status ${res.status}`);
-    throw new ApiError(res.status, message, code);
+    throw new ApiError(
+      res.status,
+      message,
+      code,
+      undefined,
+      res.headers.get("Retry-After"),
+      res.headers.get("X-Request-ID")
+    );
   }
 
   return body as T;
@@ -185,12 +211,16 @@ export function authRequest<T>(
 export function authUploadRequest<T>(
   path: string,
   accessToken: string,
-  formData: FormData
+  formData: FormData,
+  headers: HeadersInit = {}
 ): Promise<T> {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+  requestHeaders.set("Accept", "application/json");
   return handleUnauthorized(
     fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: requestHeaders,
       body: formData,
     }).then((res) => parseResponse<T>(res))
   );
@@ -447,6 +477,28 @@ export type BookingDocumentType =
   | "pan_card"
   | "applicant_photo"
   | "cancelled_cheque";
+
+export function uploadBookingDocument(
+  accessToken: string,
+  bookingId: string,
+  documentType: BookingDocumentType,
+  file: File,
+  expectedVersion: number,
+  note: string,
+  idempotencyKey: string
+): Promise<ApiBookingDetail> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("expected_version", String(expectedVersion));
+  if (note.trim()) formData.append("note", note.trim());
+
+  return authUploadRequest<ApiBookingDetail>(
+    `/admin/bookings/${encodeURIComponent(bookingId)}/documents/${encodeURIComponent(documentType)}`,
+    accessToken,
+    formData,
+    { "Idempotency-Key": idempotencyKey }
+  );
+}
 
 export interface ApiBookingListItem {
   id: string;

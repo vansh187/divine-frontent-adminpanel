@@ -58,6 +58,13 @@ export const IconRefunds = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const IconPaymentPlans = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...props}>
+    <rect x="4" y="3" width="16" height="18" rx="2" />
+    <path d="M8 8h8M8 12h8M8 16h5" />
+  </svg>
+);
+
 export const IconRevenue = (props: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...props}>
     <path d="M3 20h18" />

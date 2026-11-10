@@ -19,6 +19,8 @@ import { AdminProfilePage } from "./features/profile/AdminProfilePage";
 import { HelpPage } from "./features/misc/HelpPage";
 import { NotFoundPage } from "./features/misc/NotFoundPage";
 import { AdminApprovalsPage } from "./features/approvals/AdminApprovalsPage";
+import { PaymentPlansPage } from "./features/paymentPlans/PaymentPlansPage";
+import { NewPaymentPlanPage } from "./features/paymentPlans/NewPaymentPlanPage";
 
 function App() {
   return (
@@ -46,6 +48,8 @@ function App() {
         <Route path="site-visits/:id" element={<SiteVisitDetailPage />} />
         <Route path="bookings" element={<BookingsQueuePage />} />
         <Route path="bookings/:id" element={<BookingDetailPage />} />
+        <Route path="payment-plans" element={<PaymentPlansPage />} />
+        <Route path="payment-plans/new" element={<NewPaymentPlanPage />} />
         <Route path="refunds" element={<RefundsPage />} />
         <Route path="revenue" element={<RevenuePage />} />
         <Route path="profile" element={<AdminProfilePage />} />

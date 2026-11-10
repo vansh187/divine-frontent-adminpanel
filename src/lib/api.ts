@@ -921,3 +921,102 @@ export function markRefundCollected(
     body: JSON.stringify({ note: note || undefined }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Payment plans (admin). Plan codes contain '/', so they travel in the body.
+// ---------------------------------------------------------------------------
+
+export type PlanDueTrigger = "booking" | "possession";
+export type PlanChargeHead = "PLC" | "IFMS" | "CAM" | "ALL";
+
+export interface ApiPlanInstalment {
+  seq: number;
+  label: string;
+  percent: number;
+  due_trigger: PlanDueTrigger;
+  due_days: number | null;
+  due_text: string;
+  charge_head: PlanChargeHead | string | null;
+}
+
+export interface ApiPlanExampleRow {
+  seq: number;
+  label: string;
+  percent: number;
+  due_text: string;
+  basic_amount: number;
+  charge_head: string | null;
+  charge_amount: number;
+  amount: number;
+}
+
+export interface ApiPlanExample {
+  sale_price: number;
+  plc: number;
+  ifms: number;
+  cam: number;
+  total: number;
+  booking_amount: number;
+  rows: ApiPlanExampleRow[];
+}
+
+export interface ApiPaymentPlan {
+  code: string;
+  short_code: string | null;
+  name: string | null;
+  description: string | null;
+  project_id: string | null;
+  version: number;
+  /** Missing when the stored plan fails validation (valid = false). */
+  instalments?: ApiPlanInstalment[];
+  booking_percent?: number;
+  example?: ApiPlanExample;
+  is_active?: boolean;
+  sort_order?: number;
+  valid?: boolean;
+  created_date?: string | null;
+  last_updated_date?: string | null;
+}
+
+export interface PlanInstalmentInput {
+  label: string;
+  percent: number;
+  due_trigger: PlanDueTrigger;
+  due_days: number;
+  charge_head: PlanChargeHead | null;
+}
+
+export interface PaymentPlanCreatePayload {
+  code: string;
+  short_code: string;
+  name: string;
+  description?: string | null;
+  project_id?: string | null;
+  sort_order: number;
+  instalments: PlanInstalmentInput[];
+}
+
+/** Every plan version, active and retired (newest version first per code). */
+export function listAdminPaymentPlans(
+  accessToken: string,
+  projectId?: string
+): Promise<{ count: number; plans: ApiPaymentPlan[] }> {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return authRequest(`/admin/payment-plans${query}`, accessToken);
+}
+
+/** Dry run: checks the plan and returns it with the worked example. Saves nothing. */
+export function validatePaymentPlan(accessToken: string, payload: PaymentPlanCreatePayload): Promise<ApiPaymentPlan> {
+  return authRequest<ApiPaymentPlan>("/admin/payment-plans/validate", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Adds a new plan (version 1, active immediately). */
+export function createPaymentPlan(accessToken: string, payload: PaymentPlanCreatePayload): Promise<ApiPaymentPlan> {
+  return authRequest<ApiPaymentPlan>("/admin/payment-plans", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

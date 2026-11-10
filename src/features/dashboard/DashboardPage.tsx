@@ -51,6 +51,15 @@ const FUNNEL_STAGES: { status: BookingStatus; label: string }[] = [
   { status: "cancelled", label: "Cancelled" },
 ];
 
+function getIstGreeting(date: Date = new Date()): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", hourCycle: "h23" }).format(date)
+  );
+  if (hour >= 5 && hour < 12) return "Good Morning";
+  if (hour >= 12 && hour < 17) return "Good Afternoon";
+  return "Good Evening";
+}
+
 interface MonthRange {
   label: string;
   date_from: string;
@@ -383,7 +392,7 @@ export function DashboardPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-text sm:text-2xl">
-            Good Morning, {admin?.fullName || admin?.email || "Admin"}
+            {getIstGreeting()}, {admin?.fullName || admin?.email || "Admin"}
           </h1>
           <p className="mt-1 text-sm text-text-muted">Here&apos;s your work overview for today</p>
         </div>

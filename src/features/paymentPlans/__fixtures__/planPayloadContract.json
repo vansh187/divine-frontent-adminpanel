@@ -1,0 +1,1221 @@
+{
+  "about": "Shared contract between the admin panel and the backend. The admin panel unit tests assert that each `form` builds exactly `payload` and that the form's due wording equals `expect.dueTexts`. The backend integration test (docs/testing/backend_contract_test.py) posts each `payload` to /admin/payment-plans and checks the status, the worked example and the stored plan. Example prices: BSP 50,00,000 · PLC 1,00,000 · IFMS 50,000 · CAM 75,000. Every `rejected` payload must be refused by the backend (400 or 422) with nothing saved; the admin panel blocks these forms before sending.",
+  "accepted": [
+    {
+      "name": "standard-booking-and-possession",
+      "needsBackendUpdate": false,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T1/FPP/20-30-50",
+        "shortCode": "T1",
+        "name": "Test Plan 20-30-50",
+        "description": "  20% on booking  ",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "20",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Within 60 days of booking",
+            "percent": "30",
+            "countedFrom": "Booking date",
+            "dueDays": "60",
+            "chargeHead": "PLC"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": "50",
+            "countedFrom": "Offer of Possession date",
+            "dueDays": "0",
+            "chargeHead": "IFMS"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T1/FPP/20-30-50",
+        "short_code": "T1",
+        "name": "Test Plan 20-30-50",
+        "description": "20% on booking",
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 20,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Within 60 days of booking",
+            "percent": 30,
+            "due_trigger": "booking",
+            "due_days": 60,
+            "charge_head": "PLC"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": 50,
+            "due_trigger": "possession",
+            "due_days": 0,
+            "charge_head": "IFMS"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "60 days after booking",
+          "On Offer of Possession"
+        ],
+        "exampleAmounts": [
+          1000000,
+          1600000,
+          2625000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC",
+          "IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "typed-variants-map-to-standard-triggers",
+      "needsBackendUpdate": false,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T2/FPP/10-90",
+        "shortCode": "T2",
+        "name": "Test Plan 10-90",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "  Advance  ",
+            "percent": "10",
+            "countedFrom": "  date of BOOKING ",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Balance",
+            "percent": "90",
+            "countedFrom": "the possession date",
+            "dueDays": "15",
+            "chargeHead": "ALL"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T2/FPP/10-90",
+        "short_code": "T2",
+        "name": "Test Plan 10-90",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Advance",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Balance",
+            "percent": 90,
+            "due_trigger": "possession",
+            "due_days": 15,
+            "charge_head": "ALL"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "15 days after Offer of Possession"
+        ],
+        "exampleAmounts": [
+          500000,
+          4725000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "plan-list-not-loaded-omits-sort-order",
+      "needsBackendUpdate": false,
+      "existingSortOrders": null,
+      "form": {
+        "code": "T3/FPP/100",
+        "shortCode": "T3",
+        "name": "Test Full Payment",
+        "description": "",
+        "projectId": "",
+        "instalments": [
+          {
+            "label": "On Booking",
+            "percent": "100",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": "ALL"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T3/FPP/100",
+        "short_code": "T3",
+        "name": "Test Full Payment",
+        "description": null,
+        "project_id": null,
+        "instalments": [
+          {
+            "label": "On Booking",
+            "percent": 100,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": "ALL"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking"
+        ],
+        "exampleAmounts": [
+          5225000
+        ],
+        "exampleChargeHeads": [
+          "PLC+IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "custom-event",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T4/CLP/10-40-50",
+        "shortCode": "T4",
+        "name": "Test Construction Linked Plan",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "On completion of plinth",
+            "percent": "40",
+            "countedFrom": "Completion of plinth",
+            "dueDays": "30",
+            "chargeHead": ""
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": "50",
+            "countedFrom": "Offer of Possession date",
+            "dueDays": "",
+            "chargeHead": "ALL"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T4/CLP/10-40-50",
+        "short_code": "T4",
+        "name": "Test Construction Linked Plan",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "On completion of plinth",
+            "percent": 40,
+            "due_trigger": "custom",
+            "due_days": 30,
+            "due_from": "Completion of plinth",
+            "charge_head": null
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": 50,
+            "due_trigger": "possession",
+            "due_days": 0,
+            "charge_head": "ALL"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "30 days after Completion of plinth",
+          "On Offer of Possession"
+        ],
+        "exampleAmounts": [
+          500000,
+          2000000,
+          2725000
+        ],
+        "exampleChargeHeads": [
+          null,
+          null,
+          "PLC+IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "custom-event-no-days-and-extra-spaces",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T5/CLP/20-80",
+        "shortCode": "T5",
+        "name": "Test Slab Plan",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "20",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Slab casting",
+            "percent": "80",
+            "countedFrom": "  Casting of   roof slab ",
+            "dueDays": "",
+            "chargeHead": ""
+          }
+        ]
+      },
+      "payload": {
+        "code": "T5/CLP/20-80",
+        "short_code": "T5",
+        "name": "Test Slab Plan",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 20,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Slab casting",
+            "percent": 80,
+            "due_trigger": "custom",
+            "due_days": 0,
+            "due_from": "Casting of roof slab",
+            "charge_head": null
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "On Casting of roof slab"
+        ],
+        "exampleAmounts": [
+          1000000,
+          4225000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "booking-amount-due-after-7-days",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T6/FPP/25-75",
+        "shortCode": "T6",
+        "name": "Test Plan 25-75",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "25",
+            "countedFrom": "Booking date",
+            "dueDays": "7",
+            "chargeHead": ""
+          },
+          {
+            "label": "Balance",
+            "percent": "75",
+            "countedFrom": "Booking date",
+            "dueDays": "60",
+            "chargeHead": "ALL"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T6/FPP/25-75",
+        "short_code": "T6",
+        "name": "Test Plan 25-75",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 25,
+            "due_trigger": "booking",
+            "due_days": 7,
+            "charge_head": null
+          },
+          {
+            "label": "Balance",
+            "percent": 75,
+            "due_trigger": "booking",
+            "due_days": 60,
+            "charge_head": "ALL"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "7 days after booking",
+          "60 days after booking"
+        ],
+        "exampleAmounts": [
+          1250000,
+          3975000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "booking-amount-custom-event",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T7/FPP/10-90",
+        "shortCode": "T7",
+        "name": "Test Agreement Plan",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Token",
+            "percent": "10",
+            "countedFrom": "Agreement signing",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Balance",
+            "percent": "90",
+            "countedFrom": "Booking date",
+            "dueDays": "30",
+            "chargeHead": ""
+          }
+        ]
+      },
+      "payload": {
+        "code": "T7/FPP/10-90",
+        "short_code": "T7",
+        "name": "Test Agreement Plan",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Token",
+            "percent": 10,
+            "due_trigger": "custom",
+            "due_days": 0,
+            "due_from": "Agreement signing",
+            "charge_head": null
+          },
+          {
+            "label": "Balance",
+            "percent": 90,
+            "due_trigger": "booking",
+            "due_days": 30,
+            "charge_head": null
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On Agreement signing",
+          "30 days after booking"
+        ],
+        "exampleAmounts": [
+          500000,
+          4725000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+IFMS+CAM"
+        ]
+      }
+    },
+    {
+      "name": "pair-plc-ifms",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T8/FPP/10-40-50",
+        "shortCode": "T8",
+        "name": "Test Pair PLC IFMS",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Within 45 days of booking",
+            "percent": "40",
+            "countedFrom": "Booking date",
+            "dueDays": "45",
+            "chargeHead": "PLC+IFMS"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": "50",
+            "countedFrom": "Offer of Possession date",
+            "dueDays": "",
+            "chargeHead": "CAM"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T8/FPP/10-40-50",
+        "short_code": "T8",
+        "name": "Test Pair PLC IFMS",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Within 45 days of booking",
+            "percent": 40,
+            "due_trigger": "booking",
+            "due_days": 45,
+            "charge_head": "PLC+IFMS"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": 50,
+            "due_trigger": "possession",
+            "due_days": 0,
+            "charge_head": "CAM"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "45 days after booking",
+          "On Offer of Possession"
+        ],
+        "exampleAmounts": [
+          500000,
+          2150000,
+          2575000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+IFMS",
+          "CAM"
+        ]
+      }
+    },
+    {
+      "name": "pair-plc-cam",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T9/FPP/10-40-50",
+        "shortCode": "T9",
+        "name": "Test Pair PLC CAM",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Within 45 days of booking",
+            "percent": "40",
+            "countedFrom": "Booking date",
+            "dueDays": "45",
+            "chargeHead": "PLC+CAM"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": "50",
+            "countedFrom": "Offer of Possession date",
+            "dueDays": "",
+            "chargeHead": "IFMS"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T9/FPP/10-40-50",
+        "short_code": "T9",
+        "name": "Test Pair PLC CAM",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Within 45 days of booking",
+            "percent": 40,
+            "due_trigger": "booking",
+            "due_days": 45,
+            "charge_head": "PLC+CAM"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": 50,
+            "due_trigger": "possession",
+            "due_days": 0,
+            "charge_head": "IFMS"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "45 days after booking",
+          "On Offer of Possession"
+        ],
+        "exampleAmounts": [
+          500000,
+          2175000,
+          2550000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+CAM",
+          "IFMS"
+        ]
+      }
+    },
+    {
+      "name": "pair-ifms-cam",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T10/FPP/10-40-50",
+        "shortCode": "T10",
+        "name": "Test Pair IFMS CAM",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Within 45 days of booking",
+            "percent": "40",
+            "countedFrom": "Booking date",
+            "dueDays": "45",
+            "chargeHead": "IFMS+CAM"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": "50",
+            "countedFrom": "Offer of Possession date",
+            "dueDays": "",
+            "chargeHead": "PLC"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T10/FPP/10-40-50",
+        "short_code": "T10",
+        "name": "Test Pair IFMS CAM",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Within 45 days of booking",
+            "percent": 40,
+            "due_trigger": "booking",
+            "due_days": 45,
+            "charge_head": "IFMS+CAM"
+          },
+          {
+            "label": "On Offer of Possession",
+            "percent": 50,
+            "due_trigger": "possession",
+            "due_days": 0,
+            "charge_head": "PLC"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "45 days after booking",
+          "On Offer of Possession"
+        ],
+        "exampleAmounts": [
+          500000,
+          2125000,
+          2600000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "IFMS+CAM",
+          "PLC"
+        ]
+      }
+    },
+    {
+      "name": "pair-with-third-charge-unassigned",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T11/FPP/10-90",
+        "shortCode": "T11",
+        "name": "Test Pair On Booking",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": "PLC+IFMS"
+          },
+          {
+            "label": "Balance",
+            "percent": "90",
+            "countedFrom": "Booking date",
+            "dueDays": "60",
+            "chargeHead": ""
+          }
+        ]
+      },
+      "payload": {
+        "code": "T11/FPP/10-90",
+        "short_code": "T11",
+        "name": "Test Pair On Booking",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": "PLC+IFMS"
+          },
+          {
+            "label": "Balance",
+            "percent": 90,
+            "due_trigger": "booking",
+            "due_days": 60,
+            "charge_head": null
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "60 days after booking"
+        ],
+        "exampleAmounts": [
+          650000,
+          4575000
+        ],
+        "exampleChargeHeads": [
+          "PLC+IFMS",
+          "CAM"
+        ]
+      }
+    },
+    {
+      "name": "custom-event-with-pair",
+      "needsBackendUpdate": true,
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "T12/CLP/10-40-50",
+        "shortCode": "T12",
+        "name": "Test Plinth Pair Plan",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Plinth",
+            "percent": "40",
+            "countedFrom": "Completion of plinth",
+            "dueDays": "15",
+            "chargeHead": "PLC+CAM"
+          },
+          {
+            "label": "Possession",
+            "percent": "50",
+            "countedFrom": "Offer of Possession date",
+            "dueDays": "",
+            "chargeHead": "IFMS"
+          }
+        ]
+      },
+      "payload": {
+        "code": "T12/CLP/10-40-50",
+        "short_code": "T12",
+        "name": "Test Plinth Pair Plan",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Plinth",
+            "percent": 40,
+            "due_trigger": "custom",
+            "due_days": 15,
+            "due_from": "Completion of plinth",
+            "charge_head": "PLC+CAM"
+          },
+          {
+            "label": "Possession",
+            "percent": 50,
+            "due_trigger": "possession",
+            "due_days": 0,
+            "charge_head": "IFMS"
+          }
+        ]
+      },
+      "expect": {
+        "dueTexts": [
+          "On booking",
+          "15 days after Completion of plinth",
+          "On Offer of Possession"
+        ],
+        "exampleAmounts": [
+          500000,
+          2175000,
+          2550000
+        ],
+        "exampleChargeHeads": [
+          null,
+          "PLC+CAM",
+          "IFMS"
+        ]
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "overlap-pair-and-single",
+      "frontendErrorKeys": [
+        "chargeHeads"
+      ],
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "R1/FPP/10-40-50",
+        "shortCode": "R1",
+        "name": "Rejected Overlap One",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Second",
+            "percent": "40",
+            "countedFrom": "Booking date",
+            "dueDays": "45",
+            "chargeHead": "PLC+IFMS"
+          },
+          {
+            "label": "Third",
+            "percent": "50",
+            "countedFrom": "Booking date",
+            "dueDays": "90",
+            "chargeHead": "PLC"
+          }
+        ]
+      },
+      "payload": {
+        "code": "R1/FPP/10-40-50",
+        "short_code": "R1",
+        "name": "Rejected Overlap One",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Second",
+            "percent": 40,
+            "due_trigger": "booking",
+            "due_days": 45,
+            "charge_head": "PLC+IFMS"
+          },
+          {
+            "label": "Third",
+            "percent": 50,
+            "due_trigger": "booking",
+            "due_days": 90,
+            "charge_head": "PLC"
+          }
+        ]
+      }
+    },
+    {
+      "name": "overlap-pair-and-all",
+      "frontendErrorKeys": [
+        "chargeHeads"
+      ],
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "R2/FPP/10-40-50",
+        "shortCode": "R2",
+        "name": "Rejected Overlap Two",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Second",
+            "percent": "40",
+            "countedFrom": "Booking date",
+            "dueDays": "45",
+            "chargeHead": "IFMS+CAM"
+          },
+          {
+            "label": "Third",
+            "percent": "50",
+            "countedFrom": "Booking date",
+            "dueDays": "90",
+            "chargeHead": "ALL"
+          }
+        ]
+      },
+      "payload": {
+        "code": "R2/FPP/10-40-50",
+        "short_code": "R2",
+        "name": "Rejected Overlap Two",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Second",
+            "percent": 40,
+            "due_trigger": "booking",
+            "due_days": 45,
+            "charge_head": "IFMS+CAM"
+          },
+          {
+            "label": "Third",
+            "percent": 50,
+            "due_trigger": "booking",
+            "due_days": 90,
+            "charge_head": "ALL"
+          }
+        ]
+      }
+    },
+    {
+      "name": "single-charge-twice",
+      "frontendErrorKeys": [
+        "chargeHeads"
+      ],
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "R3/FPP/10-40-50",
+        "shortCode": "R3",
+        "name": "Rejected Same Charge",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": "CAM"
+          },
+          {
+            "label": "Second",
+            "percent": "40",
+            "countedFrom": "Booking date",
+            "dueDays": "45",
+            "chargeHead": ""
+          },
+          {
+            "label": "Third",
+            "percent": "50",
+            "countedFrom": "Booking date",
+            "dueDays": "90",
+            "chargeHead": "CAM"
+          }
+        ]
+      },
+      "payload": {
+        "code": "R3/FPP/10-40-50",
+        "short_code": "R3",
+        "name": "Rejected Same Charge",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": "CAM"
+          },
+          {
+            "label": "Second",
+            "percent": 40,
+            "due_trigger": "booking",
+            "due_days": 45,
+            "charge_head": null
+          },
+          {
+            "label": "Third",
+            "percent": 50,
+            "due_trigger": "booking",
+            "due_days": 90,
+            "charge_head": "CAM"
+          }
+        ]
+      }
+    },
+    {
+      "name": "blank-counted-from",
+      "frontendErrorKeys": [
+        "from-1"
+      ],
+      "existingSortOrders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "form": {
+        "code": "R4/FPP/10-90",
+        "shortCode": "R4",
+        "name": "Rejected Blank Event",
+        "description": "",
+        "projectId": "suraksha-enclave",
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": "10",
+            "countedFrom": "Booking date",
+            "dueDays": "",
+            "chargeHead": ""
+          },
+          {
+            "label": "Balance",
+            "percent": "90",
+            "countedFrom": "   ",
+            "dueDays": "30",
+            "chargeHead": ""
+          }
+        ]
+      },
+      "payload": {
+        "code": "R4/FPP/10-90",
+        "short_code": "R4",
+        "name": "Rejected Blank Event",
+        "description": null,
+        "project_id": "suraksha-enclave",
+        "sort_order": 5,
+        "instalments": [
+          {
+            "label": "Booking Amount",
+            "percent": 10,
+            "due_trigger": "booking",
+            "due_days": 0,
+            "charge_head": null
+          },
+          {
+            "label": "Balance",
+            "percent": 90,
+            "due_trigger": "custom",
+            "due_days": 30,
+            "due_from": "",
+            "charge_head": null
+          }
+        ]
+      }
+    }
+  ]
+}

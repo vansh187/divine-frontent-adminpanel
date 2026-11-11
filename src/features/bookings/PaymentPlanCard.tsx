@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Modal } from "../../components/ui/Modal";
@@ -14,6 +14,7 @@ import {
   type InstallmentPaymentMethod,
 } from "../../lib/api";
 import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
+import { planTitle } from "./planTitle";
 
 const METHOD_LABEL: Record<InstallmentPaymentMethod, string> = {
   cash: "Cash",
@@ -66,15 +67,52 @@ function dueInText(days: number | null | undefined) {
   return `Overdue by ${-days} day${days === -1 ? "" : "s"}`;
 }
 
-interface PaymentPlanCardProps {
-  accessToken: string;
-  booking: ApiBookingDetail;
-  onUpdated: (booking: ApiBookingDetail) => void;
-  /** Called when the server says our view is out of date; the parent should reload. */
-  onStale: (message: string) => void;
+/** Heading row shared by the plan card and the customer page's placeholder cards. */
+export function PlanCardHeader({
+  title,
+  planName,
+  action,
+}: {
+  title: string;
+  planName?: string | null;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h3 className="text-sm font-bold text-text">{title}</h3>
+        {planName && (
+          <p className="mt-0.5 text-xs text-text-muted">
+            Plan chosen: <span className="font-semibold text-text">{planName}</span>
+          </p>
+        )}
+      </div>
+      {action}
+    </div>
+  );
 }
 
-export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: PaymentPlanCardProps) {
+const sumAmounts = (rows: ApiPaymentMilestone[]) => rows.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+
+type PaymentPlanCardProps = {
+  booking: ApiBookingDetail;
+  /** Card heading; defaults to "Payment Plan". */
+  title?: string;
+  /** Extra content (e.g. a link) shown on the right of the heading. */
+  headerAction?: ReactNode;
+} & (
+  | {
+      readOnly?: false;
+      accessToken: string;
+      onUpdated: (booking: ApiBookingDetail) => void;
+      /** Called when the server says our view is out of date; the parent should reload. */
+      onStale: (message: string) => void;
+    }
+  | { readOnly: true }
+);
+
+export function PaymentPlanCard(props: PaymentPlanCardProps) {
+  const { booking, title = "Payment Plan", headerAction } = props;
   const [milestone, setMilestone] = useState<ApiPaymentMilestone | null>(null);
   const [method, setMethod] = useState<InstallmentPaymentMethod>("cash");
   const [reference, setReference] = useState("");
@@ -89,12 +127,16 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
   // Prefer the server's next_due, falling back to the first unpaid row if it's absent.
   const nextPayableId = nextDue?.milestone_id ?? schedule.find((m) => m.status !== "paid")?.id ?? null;
 
-  const totalAmount = schedule.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
-  const received =
-    booking.amount_received ??
-    schedule.filter((m) => m.status === "paid").reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+  const totalAmount = sumAmounts(schedule);
+  const received = booking.amount_received ?? sumAmounts(schedule.filter((m) => m.status === "paid"));
+  // Submitted by the customer but not yet confirmed: still outstanding, shown separately
+  // so the admin knows money is in flight and doesn't record it a second time.
+  const awaitingConfirmation = sumAmounts(schedule.filter((m) => m.status === "pending_review"));
   const outstanding = Math.max(0, totalAmount - received);
   const paidPercent = totalAmount > 0 ? Math.min(100, (received / totalAmount) * 100) : 0;
+  const paidCount = schedule.filter((m) => m.status === "paid").length;
+  const chosenPlan = planTitle(booking.payment_plan);
+  const readOnly = props.readOnly === true;
 
   function openRecord(row: ApiPaymentMilestone) {
     setMethod("cash");
@@ -115,7 +157,8 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
   const canSubmit = !referenceRequired || !!reference.trim();
 
   async function submitRecord() {
-    if (!milestone) return;
+    if (!milestone || props.readOnly) return;
+    const { accessToken, onUpdated, onStale } = props;
     setSubmitting(true);
     setFormError(null);
     try {
@@ -144,7 +187,7 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
 
   return (
     <Card className="p-5">
-      <h3 className="mb-4 text-sm font-bold text-text">Payment Plan</h3>
+      <PlanCardHeader title={title} planName={chosenPlan} action={headerAction} />
 
       {schedule.length === 0 ? (
         <p className="text-sm text-text-muted">
@@ -191,13 +234,22 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
               <dt className="text-xs text-text-muted">Outstanding</dt>
               <dd className="font-semibold text-text">{formatCurrency(outstanding)}</dd>
             </div>
+            {awaitingConfirmation > 0 && (
+              <div>
+                <dt className="text-xs text-text-muted">Awaiting Confirmation</dt>
+                <dd className="font-semibold text-info">{formatCurrency(awaitingConfirmation)}</dd>
+              </div>
+            )}
           </dl>
 
           <div className="mt-4 mb-5">
             <div className="h-2 w-full overflow-hidden rounded-full bg-surface-muted">
               <div className="h-full rounded-full bg-gold" style={{ width: `${paidPercent}%` }} />
             </div>
-            <p className="mt-1 text-xs text-text-soft">{Math.round(paidPercent)}% of the plan received</p>
+            <p className="mt-1 text-xs text-text-soft">
+              {Math.round(paidPercent)}% of the plan received · {paidCount} of {schedule.length} installment
+              {schedule.length === 1 ? "" : "s"} paid
+            </p>
           </div>
 
           <Table>
@@ -207,7 +259,7 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
               <Th>Amount</Th>
               <Th>Status</Th>
               <Th>Payment</Th>
-              <Th>Action</Th>
+              {!readOnly && <Th>Action</Th>}
             </THead>
             <tbody>
               {schedule.map((row) => {
@@ -221,7 +273,7 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
                         <p className="text-xs text-text-muted">{row.percent}% of plot value</p>
                       )}
                     </Td>
-                    <Td>{formatDate(row.due_date)}</Td>
+                    <Td>{row.due_date ? formatDate(row.due_date) : row.due_text || "-"}</Td>
                     <Td className="font-semibold">{formatCurrency(Number(row.amount) || 0)}</Td>
                     <Td>{row.status ? <StatusBadge status={row.status.toUpperCase()} /> : "-"}</Td>
                     <Td>
@@ -234,29 +286,34 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
                         <span className="text-text-soft">-</span>
                       )}
                     </Td>
-                    <Td>
-                      {row.status === "paid" ? (
-                        <span className="text-xs text-text-soft">Received</span>
-                      ) : isNext ? (
-                        <div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={!payable}
-                            onClick={() => openRecord(row)}
-                          >
-                            Record Payment
-                          </Button>
-                          {!payable && (
-                            <p className="mt-1 text-xs text-text-soft">
-                              Payable from {formatDate(row.pay_enabled_from)}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-text-soft">After earlier installments</span>
-                      )}
-                    </Td>
+                    {!readOnly && (
+                      <Td>
+                        {row.status === "paid" ? (
+                          <span className="text-xs text-text-soft">Received</span>
+                        ) : row.status === "pending_review" ? (
+                          // A submitted payment is being reviewed: recording another would double-pay it.
+                          <span className="text-xs text-text-soft">Awaiting confirmation</span>
+                        ) : isNext ? (
+                          <div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!payable}
+                              onClick={() => openRecord(row)}
+                            >
+                              Record Payment
+                            </Button>
+                            {!payable && (
+                              <p className="mt-1 text-xs text-text-soft">
+                                Payable from {formatDate(row.pay_enabled_from)}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-text-soft">After earlier installments</span>
+                        )}
+                      </Td>
+                    )}
                   </Tr>
                 );
               })}
@@ -266,7 +323,7 @@ export function PaymentPlanCard({ accessToken, booking, onUpdated, onStale }: Pa
       )}
 
       <Modal
-        open={!!milestone}
+        open={!readOnly && !!milestone}
         onClose={closeRecord}
         title="Record payment"
         footer={

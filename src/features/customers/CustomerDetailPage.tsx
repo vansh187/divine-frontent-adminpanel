@@ -7,6 +7,7 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { ApiError, listCustomers, type ApiCustomer } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
+import { CustomerPaymentPlans } from "./CustomerPaymentPlans";
 
 interface CustomerRouteState {
   customer?: ApiCustomer;
@@ -123,6 +124,10 @@ export function CustomerDetailPage() {
                   </div>
                 </dl>
               </Card>
+
+              {accessToken && (
+                <CustomerPaymentPlans key={customer.id} accessToken={accessToken} customerId={customer.id} />
+              )}
 
               <Card className="p-5">
                 <h3 className="mb-4 text-sm font-bold text-text">Activity</h3>

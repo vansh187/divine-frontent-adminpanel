@@ -31,6 +31,7 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatCompactCurrency } from "../../lib/format";
+import { fetchPages } from "../../lib/pagination";
 import { deriveStatus, projectLabel, scheduleLabel, visitTimestamp } from "../../lib/siteVisitDisplay";
 
 const UPCOMING_VISITS_LIMIT = 4;
@@ -121,15 +122,7 @@ function monthIndexFor(dateStr: string | null | undefined, ranges: MonthRange[])
 async function fetchRecent<T>(
   fetchPage: (page: number) => Promise<{ items: T[]; pagination: { total_pages: number } }>
 ): Promise<T[]> {
-  const items: T[] = [];
-  let page = 1;
-  for (;;) {
-    const res = await fetchPage(page);
-    items.push(...res.items);
-    if (items.length >= MAX_TREND_RECORDS || res.items.length === 0 || page >= res.pagination.total_pages) break;
-    page += 1;
-  }
-  return items.slice(0, MAX_TREND_RECORDS);
+  return (await fetchPages(fetchPage, { maxItems: MAX_TREND_RECORDS })).items;
 }
 
 export function DashboardPage() {

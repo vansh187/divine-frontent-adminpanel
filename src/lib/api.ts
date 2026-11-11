@@ -527,6 +527,8 @@ export interface BookingListResponse {
 export interface BookingListParams {
   page?: number;
   page_size?: number;
+  /** Exact customer filter. Ignored by backends that don't support it yet, so callers must still filter. */
+  customer_id?: string;
   search?: string;
   status?: BookingStatus;
   kyc_status?: KycStatus;
@@ -587,18 +589,38 @@ export interface ApiBookingDetail {
   payment_schedule: ApiPaymentMilestone[];
   next_due: ApiNextDue | null;
   amount_received: number | null;
+  /** The plan and prices the customer booked with. Null for legacy bookings / before the application upload. */
+  payment_plan?: ApiBookingPlanSnapshot | null;
   created_at: string;
   last_activity_at: string;
 }
 
-export type InstallmentStatus = "paid" | "overdue" | "due" | "upcoming";
+/** Snapshot of the chosen payment plan, stored on the booking application when it was created. */
+export interface ApiBookingPlanSnapshot {
+  code?: string | null;
+  short_code?: string | null;
+  name?: string | null;
+  version?: number | null;
+  sale_price?: number | null;
+  plc?: number | null;
+  ifms?: number | null;
+  cam?: number | null;
+  total?: number | null;
+  booking_amount?: number | null;
+}
+
+/** pending_review: a payment was submitted for this installment and awaits confirmation. */
+export type InstallmentStatus = "paid" | "pending_review" | "overdue" | "due" | "upcoming";
 
 export interface ApiPaymentMilestone {
   id: string;
   label: string;
   percent: number;
   due_days: number;
-  due_date: string;
+  /** Null when the instalment is counted from an event with no date yet (possession / custom). */
+  due_date: string | null;
+  /** e.g. "30 days after Completion of plinth" — shown when there is no due_date. */
+  due_text?: string | null;
   amount: number;
   status: InstallmentStatus;
   /** The backend rejects a payment for this milestone before this date. */
@@ -926,8 +948,14 @@ export function markRefundCollected(
 // Payment plans (admin). Plan codes contain '/', so they travel in the body.
 // ---------------------------------------------------------------------------
 
-export type PlanDueTrigger = "booking" | "possession";
-export type PlanChargeHead = "PLC" | "IFMS" | "CAM" | "ALL";
+/**
+ * What an instalment's due date is counted from. "custom" is any other event the admin
+ * types (e.g. "Completion of plinth"): it is shown as wording only, with no automatic
+ * due date. "custom" needs the backend update described in docs/payment-plan-free-text-due-backend.md.
+ */
+export type PlanDueTrigger = "booking" | "possession" | "custom";
+/** Pairs ("PLC+IFMS" etc.) need the backend update in docs/payment-plan-free-text-due-backend.md. */
+export type PlanChargeHead = "PLC" | "IFMS" | "CAM" | "PLC+IFMS" | "PLC+CAM" | "IFMS+CAM" | "ALL";
 
 export interface ApiPlanInstalment {
   seq: number;
@@ -935,6 +963,8 @@ export interface ApiPlanInstalment {
   percent: number;
   due_trigger: PlanDueTrigger;
   due_days: number | null;
+  /** The admin's own "Counted from" wording, set only when due_trigger is "custom". */
+  due_from?: string | null;
   due_text: string;
   charge_head: PlanChargeHead | string | null;
 }
@@ -983,6 +1013,8 @@ export interface PlanInstalmentInput {
   percent: number;
   due_trigger: PlanDueTrigger;
   due_days: number;
+  /** Required when due_trigger is "custom"; omitted otherwise. */
+  due_from?: string;
   charge_head: PlanChargeHead | null;
 }
 
@@ -992,7 +1024,8 @@ export interface PaymentPlanCreatePayload {
   name: string;
   description?: string | null;
   project_id?: string | null;
-  sort_order: number;
+  /** Optional: the backend defaults it to 0. Admins no longer set it; new plans go last. */
+  sort_order?: number;
   instalments: PlanInstalmentInput[];
 }
 

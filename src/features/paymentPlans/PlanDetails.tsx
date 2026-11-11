@@ -59,10 +59,6 @@ export function PlanDetails({ plan, showMeta = true }: { plan: ApiPaymentPlan; s
                 <dd className="font-semibold text-text">v{plan.version}</dd>
               </div>
               <div>
-                <dt className="text-xs text-text-muted">Display Order</dt>
-                <dd className="font-semibold text-text">{plan.sort_order ?? "-"}</dd>
-              </div>
-              <div>
                 <dt className="text-xs text-text-muted">Created</dt>
                 <dd className="font-semibold text-text">{formatDateTime(plan.created_date)}</dd>
               </div>

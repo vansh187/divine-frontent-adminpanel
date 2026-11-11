@@ -50,6 +50,7 @@ const STATUS_TONE: Record<string, Tone> = {
   NOT_REQUIRED: "neutral",
   // Installment
   UPCOMING: "neutral",
+  PENDING_REVIEW: "info",
   DUE: "warning",
   OVERDUE: "danger",
   // Visit

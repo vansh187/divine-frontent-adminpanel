@@ -256,15 +256,23 @@ export function needsBackendUpdate(payload: PaymentPlanCreatePayload) {
   );
 }
 
+/**
+ * Message for a failed payment-plan API call: the friendly text for the error code from
+ * `messages`, else the server's message, else a generic one for network/unknown errors.
+ */
+export function planApiErrorMessage(error: unknown, messages: Record<string, string> = API_ERROR_MESSAGES) {
+  if (!(error instanceof ApiError)) return GENERIC_ERROR_MESSAGE;
+  return (error.code && messages[error.code]) || error.message;
+}
+
 /** Message for a failed preview/create. `error` is whatever the API call threw. */
 export function planSubmitErrorMessage(error: unknown, payload: PaymentPlanCreatePayload) {
   if (!(error instanceof ApiError)) return GENERIC_ERROR_MESSAGE;
-  const apiError = error;
   // Until the backend update is live, a custom "Counted from" or a charge pair fails the
   // DTO (422) and an edited booking-amount due fails the plan rules (400) — explain that
   // instead of a generic error.
   const rejectedAsInvalid =
-    apiError.status === 422 || apiError.code === "invalid_instalments" || apiError.code === "invalid_payment_plan";
+    error.status === 422 || error.code === "invalid_instalments" || error.code === "invalid_payment_plan";
   if (rejectedAsInvalid && needsBackendUpdate(payload)) return NEEDS_BACKEND_UPDATE_MESSAGE;
-  return (apiError.code && API_ERROR_MESSAGES[apiError.code]) || apiError.message;
+  return planApiErrorMessage(error);
 }

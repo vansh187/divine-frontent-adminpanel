@@ -1,16 +1,41 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { Modal } from "../../components/ui/Modal";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Select } from "../../components/ui/Select";
-import { ApiError, listAdminPaymentPlans, type ApiPaymentPlan } from "../../lib/api";
+import { ApiError, listAdminPaymentPlans, setPaymentPlanActive, type ApiPaymentPlan } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { API_ERROR_MESSAGES, planApiErrorMessage } from "./planForm";
 import { PlanDetails } from "./PlanDetails";
+
+// Activation reuses the create form's messages, except where the admin needs different
+// guidance: on activation the clash is with an existing plan, not with what they typed.
+const TOGGLE_ERROR_MESSAGES: Record<string, string> = {
+  ...API_ERROR_MESSAGES,
+  short_code_in_use:
+    "Another active plan already uses this plan's short code. Deactivate that plan first, then activate this one.",
+  payment_plan_not_found: "This plan no longer exists. Reload the page.",
+};
+
+/**
+ * Switches one version of a plan on or off in the local list. Activating it retires the
+ * code's other versions, as the server does. The server's reply isn't used for this: it
+ * describes the code's "current" version, which after a deactivation can be a different one.
+ */
+function applyToggle(plans: ApiPaymentPlan[], code: string, version: number, active: boolean): ApiPaymentPlan[] {
+  return plans.map((plan) => {
+    if (plan.code !== code) return plan;
+    if (plan.version === version) return { ...plan, is_active: active };
+    return active && plan.is_active ? { ...plan, is_active: false } : plan;
+  });
+}
 
 /**
  * One entry per plan code: the active version, else the newest. The API returns
- * every version, newest first within each code.
+ * every version, newest first within each code. This is also the version the server
+ * switches on or off for that code.
  */
 function currentPlanVersions(plans: ApiPaymentPlan[]): ApiPaymentPlan[] {
   const byCode = new Map<string, ApiPaymentPlan>();
@@ -29,9 +54,22 @@ function currentPlanVersions(plans: ApiPaymentPlan[]): ApiPaymentPlan[] {
   });
 }
 
+/** "PP1 — Flexi Plan", falling back to the plan code. */
+function planName(plan: ApiPaymentPlan) {
+  return [plan.short_code, plan.name].filter(Boolean).join(" — ") || plan.code;
+}
+
 function planOptionLabel(plan: ApiPaymentPlan) {
-  const name = [plan.short_code, plan.name].filter(Boolean).join(" — ") || plan.code;
-  return plan.is_active ? name : `${name} (Inactive)`;
+  return plan.is_active ? planName(plan) : `${planName(plan)} (Inactive)`;
+}
+
+/** The newest version of `plan`'s code, when it is newer than `plan` itself. */
+function newerVersion(plans: ApiPaymentPlan[], plan: ApiPaymentPlan): ApiPaymentPlan | null {
+  let newest: ApiPaymentPlan | null = null;
+  for (const p of plans) {
+    if (p.code === plan.code && p.version > plan.version && (!newest || p.version > newest.version)) newest = p;
+  }
+  return newest;
 }
 
 export function PaymentPlansPage() {
@@ -40,7 +78,7 @@ export function PaymentPlansPage() {
   const location = useLocation();
   // Read once: the "created" banner belongs to this visit only. The history entry's
   // state is cleared below so a reload or Back/Forward doesn't show it again.
-  const [createdCode] = useState<string | null>(
+  const [createdCode, setCreatedCode] = useState<string | null>(
     () => (location.state as { createdCode?: string } | null)?.createdCode ?? null
   );
   const [selectedCode, setSelectedCode] = useState<string>(createdCode ?? "");
@@ -59,30 +97,88 @@ export function PaymentPlansPage() {
   const loading = !!accessToken && load.token !== accessToken;
   const { plans, error } = load;
 
-  useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    listAdminPaymentPlans(accessToken)
+  // Only the newest list request may update the page: an older one still in flight
+  // (e.g. started by a token refresh) would overwrite later changes with stale data.
+  const listRequest = useRef(0);
+  const fetchPlans = useCallback((token: string, { keepOnError = false } = {}) => {
+    const request = ++listRequest.current;
+    listAdminPaymentPlans(token)
       .then((res) => {
-        if (cancelled) return;
-        setLoad({ token: accessToken, plans: Array.isArray(res.plans) ? res.plans : [], error: null });
+        if (request !== listRequest.current) return;
+        setLoad({ token, plans: Array.isArray(res.plans) ? res.plans : [], error: null });
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (request !== listRequest.current || keepOnError) return;
         setLoad((prev) => ({
-          token: accessToken,
+          token,
           plans: prev.plans,
           error: err instanceof ApiError ? err.message : "Failed to load payment plans.",
         }));
       });
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    fetchPlans(accessToken);
     return () => {
-      cancelled = true;
+      listRequest.current += 1;
     };
-  }, [accessToken]);
+  }, [accessToken, fetchPlans]);
 
   const current = useMemo(() => currentPlanVersions(plans), [plans]);
   const activeCount = current.filter((p) => p.is_active).length;
   const selected = current.find((p) => p.code === selectedCode) ?? current[0] ?? null;
+
+  // Activate / deactivate a plan, after a confirmation step. Only the code and the intended
+  // action are kept; the plan itself is always read from the latest list.
+  const [toggleRequest, setToggleRequest] = useState<{ code: string; activate: boolean } | null>(null);
+  const [toggling, setToggling] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  const [toggleNotice, setToggleNotice] = useState<string | null>(null);
+  const togglePlan = toggleRequest ? (current.find((p) => p.code === toggleRequest.code) ?? null) : null;
+  // The list changed while the dialog was open (e.g. another admin already did this).
+  const alreadyDone = !!toggleRequest && !!togglePlan && !!togglePlan.is_active === toggleRequest.activate;
+  const toggleNewer = togglePlan && toggleRequest && !toggleRequest.activate ? newerVersion(plans, togglePlan) : null;
+
+  function openToggle(plan: ApiPaymentPlan) {
+    setToggleError(null);
+    setToggleNotice(null);
+    setToggleRequest({ code: plan.code, activate: !plan.is_active });
+  }
+
+  async function handleToggle() {
+    if (!accessToken || !toggleRequest || !togglePlan || alreadyDone || toggling) return;
+    const { code, activate } = toggleRequest;
+    const { version } = togglePlan;
+    const name = planName(togglePlan);
+    setToggling(true);
+    setToggleError(null);
+    try {
+      await setPaymentPlanActive(accessToken, code, activate);
+      setLoad((prev) => ({ ...prev, plans: applyToggle(prev.plans, code, version, activate) }));
+      // Then confirm against the server. This also discards any older list request still in flight.
+      fetchPlans(accessToken, { keepOnError: true });
+      // Keep this plan selected: re-sorting moves inactive plans to the end of the list.
+      setSelectedCode(code);
+      setToggleRequest(null);
+      setCreatedCode(null);
+      setToggleNotice(
+        activate
+          ? `${name} is active again. Customers will see it in the booking dropdown within a minute.`
+          : `${name} is now inactive. New customers can't choose it; customers already on this plan are not affected.`
+      );
+    } catch (err) {
+      setToggleError(planApiErrorMessage(err, TOGGLE_ERROR_MESSAGES));
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  function closeToggle() {
+    if (!toggling) setToggleRequest(null);
+  }
+
+  const activating = !!toggleRequest?.activate;
 
   return (
     <div>
@@ -99,6 +195,12 @@ export function PaymentPlansPage() {
         </div>
       )}
 
+      {toggleNotice && (
+        <div role="status" className="mb-4 rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
+          {toggleNotice}
+        </div>
+      )}
+
       {loading ? (
         <Card className="p-5 text-sm text-text-muted">Loading payment plans...</Card>
       ) : error ? (
@@ -111,18 +213,28 @@ export function PaymentPlansPage() {
             <label htmlFor="payment-plan-select" className="mb-1.5 block text-sm font-medium text-text">
               Current payment plan
             </label>
-            <Select
-              id="payment-plan-select"
-              className="w-full max-w-full truncate sm:w-auto sm:min-w-[420px]"
-              value={selected?.code ?? ""}
-              onChange={(e) => setSelectedCode(e.target.value)}
-            >
-              {current.map((plan) => (
-                <option key={plan.code} value={plan.code}>
-                  {planOptionLabel(plan)}
-                </option>
-              ))}
-            </Select>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Select
+                id="payment-plan-select"
+                className="w-full max-w-full truncate sm:w-auto sm:min-w-[420px]"
+                value={selected?.code ?? ""}
+                onChange={(e) => {
+                  setSelectedCode(e.target.value);
+                  setToggleNotice(null);
+                }}
+              >
+                {current.map((plan) => (
+                  <option key={plan.code} value={plan.code}>
+                    {planOptionLabel(plan)}
+                  </option>
+                ))}
+              </Select>
+              {selected && (
+                <Button variant={selected.is_active ? "outline" : "secondary"} onClick={() => openToggle(selected)}>
+                  {selected.is_active ? "Deactivate Plan" : "Activate Plan"}
+                </Button>
+              )}
+            </div>
             <p className="mt-1.5 text-xs text-text-soft">
               {activeCount} active plan{activeCount === 1 ? "" : "s"}
               {current.length > activeCount ? ` · ${current.length - activeCount} inactive` : ""}
@@ -132,6 +244,66 @@ export function PaymentPlansPage() {
           {selected && <PlanDetails plan={selected} />}
         </div>
       )}
+
+      <Modal
+        open={!!toggleRequest}
+        onClose={closeToggle}
+        title={activating ? "Activate payment plan?" : "Deactivate payment plan?"}
+        footer={
+          <>
+            <Button variant="outline" onClick={closeToggle} disabled={toggling}>
+              Cancel
+            </Button>
+            <Button
+              variant={activating ? "primary" : "danger"}
+              onClick={handleToggle}
+              disabled={toggling || !togglePlan || alreadyDone}
+            >
+              {toggling ? "Saving..." : activating ? "Activate" : "Deactivate"}
+            </Button>
+          </>
+        }
+      >
+        {toggleRequest && !togglePlan ? (
+          <p>This plan is no longer in the list. Reload the page.</p>
+        ) : togglePlan ? (
+          <div className="space-y-3">
+            <p className="font-semibold break-words text-text">
+              {planName(togglePlan)} <span className="font-normal text-text-muted">(version v{togglePlan.version})</span>
+            </p>
+            {alreadyDone ? (
+              <p>This plan is already {activating ? "active" : "inactive"}. Nothing needs to change.</p>
+            ) : activating ? (
+              <p>
+                Customers will be able to choose this plan again when booking a plot, within about a minute. Version v
+                {togglePlan.version} will be used, with the instalments shown on this page.
+              </p>
+            ) : (
+              <>
+                <ul className="list-disc space-y-1.5 pl-5">
+                  <li>New customers will no longer see this plan when booking a plot.</li>
+                  <li>
+                    Customers already on this plan are <span className="font-semibold text-text">not affected</span>:
+                    their instalment schedule, due dates, reminders and demand letters keep running as before.
+                  </li>
+                  <li>You can activate the plan again at any time.</li>
+                </ul>
+                {toggleNewer && (
+                  <div className="rounded-xl border border-gold/30 bg-gold/10 p-3 text-sm text-text">
+                    A newer version (v{toggleNewer.version}) of this plan exists. If you activate the plan again
+                    later, v{toggleNewer.version} will be switched on, not v{togglePlan.version}.
+                  </div>
+                )}
+              </>
+            )}
+            {toggleError && (
+              <div role="alert" className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
+                {toggleError}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

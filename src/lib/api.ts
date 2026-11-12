@@ -1046,6 +1046,18 @@ export function validatePaymentPlan(accessToken: string, payload: PaymentPlanCre
   });
 }
 
+/**
+ * Switches a plan on or off (its active version, else its newest). Off hides it from new
+ * bookings only: customers who already booked on it keep their exact plan version, schedule
+ * and demand letters. Returns the updated plan.
+ */
+export function setPaymentPlanActive(accessToken: string, code: string, isActive: boolean): Promise<ApiPaymentPlan> {
+  return authRequest<ApiPaymentPlan>("/admin/payment-plans", accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ code, is_active: isActive }),
+  });
+}
+
 /** Adds a new plan (version 1, active immediately). */
 export function createPaymentPlan(accessToken: string, payload: PaymentPlanCreatePayload): Promise<ApiPaymentPlan> {
   return authRequest<ApiPaymentPlan>("/admin/payment-plans", accessToken, {

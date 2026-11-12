@@ -257,3 +257,66 @@ describe("PaymentPlansPage activate / deactivate", () => {
     expect(screen.getByRole("button", { name: "Deactivate" })).toBeDisabled();
   });
 });
+
+describe("PaymentPlansPage number of plots", () => {
+  const FIELD = "Number of Plots Using This Payment Plan";
+  const plotsValue = () => screen.getByText(FIELD).nextElementSibling as HTMLElement;
+
+  beforeEach(() => {
+    listAdminPaymentPlans.mockReset();
+    setPaymentPlanActive.mockReset();
+    auth.accessToken = "token";
+  });
+
+  it("shows how many plots are on the selected plan", async () => {
+    fakeServer([plan({ plots_count: 7 }), plan({ code: "PP2/CLP", short_code: "PP2", sort_order: 2, plots_count: 0 })]);
+    const { user } = await renderPage();
+    expect(plotsValue()).toHaveTextContent(/^7$/);
+
+    await user.selectOptions(select(), "PP2/CLP");
+    expect(plotsValue()).toHaveTextContent(/^0$/);
+  });
+
+  it("adds up every version of the plan and splits it when customers are on more than one", async () => {
+    fakeServer([
+      plan({ version: 2, is_active: true, plots_count: 5 }),
+      plan({ version: 1, is_active: false, plots_count: 3 }),
+    ]);
+    await renderPage();
+    expect(plotsValue()).toHaveTextContent("8");
+    expect(plotsValue()).toHaveTextContent("v1: 3 · v2: 5");
+  });
+
+  it("doesn't split when only one version has plots", async () => {
+    fakeServer([
+      plan({ version: 2, is_active: true, plots_count: 4 }),
+      plan({ version: 1, is_active: false, plots_count: 0 }),
+    ]);
+    await renderPage();
+    expect(plotsValue()).toHaveTextContent(/^4$/);
+  });
+
+  it("says the count needs the server update when the backend doesn't send it", async () => {
+    fakeServer([plan({})]);
+    await renderPage();
+    expect(plotsValue()).toHaveTextContent("Available after the server update");
+  });
+
+  it("tells the admin how many plots stay on the plan when deactivating it", async () => {
+    fakeServer([plan({ plots_count: 12 })]);
+    const { user } = await renderPage();
+    await user.click(screen.getByRole("button", { name: "Deactivate Plan" }));
+    expect(screen.getByText(/Customers already on this plan \(12 plots right now\) are/)).toBeInTheDocument();
+  });
+
+  it("refreshes the count when the admin comes back to the tab", async () => {
+    fakeServer([plan({ plots_count: 2 })]);
+    await renderPage();
+    expect(plotsValue()).toHaveTextContent(/^2$/);
+
+    // A plot was booked on this plan while the admin was on another tab.
+    listAdminPaymentPlans.mockResolvedValueOnce({ count: 1, plans: [plan({ plots_count: 3 })] });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(plotsValue()).toHaveTextContent(/^3$/));
+  });
+});

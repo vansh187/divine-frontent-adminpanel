@@ -8,7 +8,7 @@ import { Select } from "../../components/ui/Select";
 import { ApiError, listAdminPaymentPlans, setPaymentPlanActive, type ApiPaymentPlan } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { API_ERROR_MESSAGES, planApiErrorMessage } from "./planForm";
-import { PlanDetails } from "./PlanDetails";
+import { PlanDetails, type PlotUsage } from "./PlanDetails";
 
 // Activation reuses the create form's messages, except where the admin needs different
 // guidance: on activation the clash is with an existing plan, not with what they typed.
@@ -52,6 +52,23 @@ function currentPlanVersions(plans: ApiPaymentPlan[]): ApiPaymentPlan[] {
     const order = (a.sort_order ?? 0) - (b.sort_order ?? 0);
     return order !== 0 ? order : a.code.localeCompare(b.code);
   });
+}
+
+/**
+ * Plots currently on a plan code, over all its versions: customers keep the version they
+ * booked on, so older versions still count. Null when the backend doesn't send counts yet.
+ */
+function plotUsage(plans: ApiPaymentPlan[], code: string): PlotUsage | null {
+  const versions = plans.filter((p) => p.code === code && typeof p.plots_count === "number");
+  if (versions.length === 0) return null;
+  const byVersion = versions
+    .map((p) => ({ version: p.version, count: p.plots_count as number }))
+    .sort((a, b) => a.version - b.version);
+  return { total: byVersion.reduce((sum, v) => sum + v.count, 0), byVersion };
+}
+
+function plotsText(count: number) {
+  return `${count} plot${count === 1 ? "" : "s"}`;
 }
 
 /** "PP1 — Flexi Plan", falling back to the plan code. */
@@ -125,9 +142,21 @@ export function PaymentPlansPage() {
     };
   }, [accessToken, fetchPlans]);
 
+  // Plot counts change as customers book or bookings are rejected / cancelled elsewhere:
+  // refresh quietly whenever the admin comes back to this tab.
+  useEffect(() => {
+    if (!accessToken) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchPlans(accessToken, { keepOnError: true });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [accessToken, fetchPlans]);
+
   const current = useMemo(() => currentPlanVersions(plans), [plans]);
   const activeCount = current.filter((p) => p.is_active).length;
   const selected = current.find((p) => p.code === selectedCode) ?? current[0] ?? null;
+  const selectedUsage = selected ? plotUsage(plans, selected.code) : null;
 
   // Activate / deactivate a plan, after a confirmation step. Only the code and the intended
   // action are kept; the plan itself is always read from the latest list.
@@ -139,6 +168,7 @@ export function PaymentPlansPage() {
   // The list changed while the dialog was open (e.g. another admin already did this).
   const alreadyDone = !!toggleRequest && !!togglePlan && !!togglePlan.is_active === toggleRequest.activate;
   const toggleNewer = togglePlan && toggleRequest && !toggleRequest.activate ? newerVersion(plans, togglePlan) : null;
+  const togglePlots = togglePlan ? (plotUsage(plans, togglePlan.code)?.total ?? null) : null;
 
   function openToggle(plan: ApiPaymentPlan) {
     setToggleError(null);
@@ -241,7 +271,7 @@ export function PaymentPlansPage() {
             </p>
           </Card>
 
-          {selected && <PlanDetails plan={selected} />}
+          {selected && <PlanDetails plan={selected} plotUsage={selectedUsage} />}
         </div>
       )}
 
@@ -283,8 +313,10 @@ export function PaymentPlansPage() {
                 <ul className="list-disc space-y-1.5 pl-5">
                   <li>New customers will no longer see this plan when booking a plot.</li>
                   <li>
-                    Customers already on this plan are <span className="font-semibold text-text">not affected</span>:
-                    their instalment schedule, due dates, reminders and demand letters keep running as before.
+                    Customers already on this plan
+                    {togglePlots ? ` (${plotsText(togglePlots)} right now)` : ""} are{" "}
+                    <span className="font-semibold text-text">not affected</span>: their instalment schedule, due
+                    dates, reminders and demand letters keep running as before.
                   </li>
                   <li>You can activate the plan again at any time.</li>
                 </ul>

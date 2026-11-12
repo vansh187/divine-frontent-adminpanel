@@ -1004,6 +1004,12 @@ export interface ApiPaymentPlan {
   is_active?: boolean;
   sort_order?: number;
   valid?: boolean;
+  /**
+   * Admin list only: plots with an active booking (pending KYC review or booked) made on
+   * this exact plan version. Missing until the backend update in
+   * docs/payment-plan-plots-count-backend.md is live.
+   */
+  plots_count?: number;
   created_date?: string | null;
   last_updated_date?: string | null;
 }

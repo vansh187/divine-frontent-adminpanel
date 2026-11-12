@@ -14,8 +14,28 @@ function chargeLabel(head: string | null | undefined) {
   return CHARGE_HEAD_LABEL[head] ?? head.replace(/\+/g, " + ");
 }
 
-/** A plan's details, instalment rules and the backend's worked example. */
-export function PlanDetails({ plan, showMeta = true }: { plan: ApiPaymentPlan; showMeta?: boolean }) {
+/** Plots currently on a plan code: the total and the split by plan version. */
+export interface PlotUsage {
+  total: number;
+  byVersion: { version: number; count: number }[];
+}
+
+/**
+ * A plan's details, instalment rules and the backend's worked example. `plotUsage` adds the
+ * "Number of Plots Using This Payment Plan" field: pass null when the backend doesn't send
+ * counts yet, leave it out where the field doesn't belong (e.g. a new plan's preview).
+ */
+export function PlanDetails({
+  plan,
+  showMeta = true,
+  plotUsage,
+}: {
+  plan: ApiPaymentPlan;
+  showMeta?: boolean;
+  plotUsage?: PlotUsage | null;
+}) {
+  // Only worth splitting when customers are on more than one version.
+  const usedVersions = plotUsage ? plotUsage.byVersion.filter((v) => v.count > 0) : [];
   const instalments = plan.instalments ?? [];
   const example = plan.example;
 
@@ -67,6 +87,25 @@ export function PlanDetails({ plan, showMeta = true }: { plan: ApiPaymentPlan; s
                 <dd className="font-semibold text-text">{formatDateTime(plan.last_updated_date)}</dd>
               </div>
             </>
+          )}
+          {plotUsage !== undefined && (
+            <div>
+              <dt className="text-xs text-text-muted">Number of Plots Using This Payment Plan</dt>
+              {plotUsage ? (
+                <dd className="font-semibold text-text">
+                  {plotUsage.total}
+                  {usedVersions.length > 1 && (
+                    <span className="block text-xs font-normal text-text-muted">
+                      {usedVersions.map((v) => `v${v.version}: ${v.count}`).join(" · ")}
+                    </span>
+                  )}
+                </dd>
+              ) : (
+                <dd className="font-semibold text-text">
+                  -<span className="block text-xs font-normal text-text-muted">Available after the server update</span>
+                </dd>
+              )}
+            </div>
           )}
         </dl>
         {plan.valid === false && (

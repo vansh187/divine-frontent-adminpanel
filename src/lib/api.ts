@@ -309,7 +309,8 @@ export function submitSupportTicket(
   });
 }
 
-export type CustomerSource = "WEBSITE" | "BROKER_CHANNEL";
+/** OFFLINE_IMPORT: a buyer loaded from the client's sheets (bought offline). */
+export type CustomerSource = "WEBSITE" | "BROKER_CHANNEL" | "OFFLINE_IMPORT";
 export type CustomerStatus = "LEAD" | "ACTIVE" | "BOOKED" | "INACTIVE";
 
 export interface ApiCustomer {
@@ -321,6 +322,19 @@ export interface ApiCustomer {
   status: CustomerStatus;
   created_at: string;
   last_activity_at: string;
+  /** Short codes of the payment plans on the customer's plots ("PP1"); absent on older backends. */
+  payment_plans?: string[];
+  /** Every plot the customer holds, with its own plan (null = none linked yet); absent on older backends. */
+  plot_plans?: ApiCustomerPlotPlanRef[];
+}
+
+export interface ApiCustomerPlotPlanRef {
+  project_name: string | null;
+  unit_number: string | null;
+  /** Short code, e.g. "PP1". */
+  payment_plan: string | null;
+  /** The plot's own applicant; can differ from the account holder when buyers share an email. */
+  applicant_name?: string | null;
 }
 
 export interface CustomerListResponse {
@@ -362,6 +376,103 @@ export function createCustomer(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/**
+ * plan_needed: no payment plan linked yet. price_needed: plan + booking date linked, prices
+ * missing (no demand letter yet). complete: schedule built from the prices.
+ */
+export type PlotTermsStatus = "plan_needed" | "price_needed" | "complete";
+export type PlotScheduleStatus = "paid" | "due" | "overdue" | "upcoming";
+
+export interface ApiCustomerPlotScheduleRow {
+  milestone_no: number | null;
+  label: string | null;
+  percent: number | null;
+  /** YYYY-MM-DD; null until its event (e.g. the offer of possession) has a date. */
+  due_date: string | null;
+  amount: number;
+  status: PlotScheduleStatus;
+}
+
+/** One plot of a customer: a website booking or an offline buyer's plot. */
+export interface ApiCustomerPlot {
+  document_id: string;
+  record_type: "offline" | "website";
+  project_name: string | null;
+  unit_number: string | null;
+  /** The plot's own applicant (buyers sharing an email share one account, not their applicants). */
+  applicant_name: string | null;
+  /** First and second co-applicant, when given. */
+  co_applicant_names?: string[];
+  payment_plan: { code: string; short_code: string | null; name: string | null; version: number | null } | null;
+  /** YYYY-MM-DD */
+  booking_date: string | null;
+  sale_price: number | null;
+  plc: number | null;
+  ifms: number | null;
+  cam: number | null;
+  total: number | null;
+  amount_received: number | null;
+  outstanding: number | null;
+  terms_status: PlotTermsStatus;
+  /** Only an offline buyer's plot; a website booking keeps the terms it was paid against. */
+  terms_editable: boolean;
+  demand_letter_available: boolean;
+  schedule: ApiCustomerPlotScheduleRow[];
+}
+
+export interface ApiCustomerDetail {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  source: "WEBSITE" | "OFFLINE_IMPORT";
+  plots: ApiCustomerPlot[];
+}
+
+/** A customer with each of their plots and its payment plan. */
+export function getCustomerDetail(accessToken: string, customerId: string): Promise<ApiCustomerDetail> {
+  return authRequest<ApiCustomerDetail>(`/admin/customers/${encodeURIComponent(customerId)}`, accessToken);
+}
+
+export interface PlotPaymentTermsPayload {
+  /** A plan code, short code ("PP1") or the client's label ("PL-10-15-25-25-15-10"). */
+  payment_plan: string;
+  /** YYYY-MM-DD, not in the future. */
+  booking_date: string;
+  /**
+   * The request replaces the plot's terms: a null (or missing) price is removed. Without
+   * sale_price only the plan and booking date are kept (the plot waits for prices).
+   */
+  sale_price?: number | null;
+  plc?: number | null;
+  ifms?: number | null;
+  cam?: number | null;
+  /** Total the buyer has paid to date; instalments are marked paid oldest first. */
+  amount_received?: number | null;
+}
+
+/** Links a plan, booking date and (optionally) prices + amount received to an offline buyer's plot. */
+export function setPlotPaymentTerms(
+  accessToken: string,
+  customerId: string,
+  documentId: string,
+  payload: PlotPaymentTermsPayload
+): Promise<ApiCustomerPlot> {
+  return authRequest<ApiCustomerPlot>(
+    `/admin/customers/${encodeURIComponent(customerId)}/plots/${encodeURIComponent(documentId)}/payment-terms`,
+    accessToken,
+    { method: "PUT", body: JSON.stringify(payload) }
+  );
+}
+
+/** The plot's Demand Letter (the same PDF the customer gets). 409 payment_details_pending until priced. */
+export function downloadPlotDemandLetter(accessToken: string, customerId: string, documentId: string) {
+  return authDownloadRequest(
+    `/admin/customers/${encodeURIComponent(customerId)}/plots/${encodeURIComponent(documentId)}/demand-letter`,
+    accessToken
+  );
 }
 
 export type BrokerProject = "suraksha-enclave" | "ops-divine-greens";
@@ -742,11 +853,13 @@ function parseContentDispositionFilename(disposition: string | null): string | n
  */
 export function authDownloadRequest(
   path: string,
-  accessToken: string
+  accessToken: string,
+  signal?: AbortSignal
 ): Promise<{ blob: Blob; filename: string | null }> {
   return handleUnauthorized(
     fetch(`${API_BASE_URL}${path}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal,
     }).then(async (res) => {
       if (!res.ok) return parseResponse<never>(res);
       const filename = parseContentDispositionFilename(res.headers.get("content-disposition"));
@@ -1215,7 +1328,7 @@ export function changeInventoryStatus(
   });
 }
 
-/** One plot for the Inventory CSV export. Buyer fields are null for a plot nobody has bought. */
+/** One plot of the Inventory export (the Sample CSV's shape). Buyer fields are null for a plot nobody has bought. */
 export interface ApiInventoryExportRow extends ApiInventoryUnit {
   company_name: string | null;
   company_address: string | null;
@@ -1232,14 +1345,22 @@ export interface ApiInventoryExportRow extends ApiInventoryUnit {
   booking_date: string | null;
 }
 
-export function listInventoryExport(
+/**
+ * The Inventory export as one CSV file built by the server: every plot matching the filters,
+ * read in one go (so a plot changing mid-download can't be repeated or skipped). `columns` are
+ * the server's column keys; the file keeps its own column order. Cells a spreadsheet would run
+ * as a formula already start with an apostrophe, so the file is saved as it comes.
+ */
+export function downloadInventoryCsv(
   accessToken: string,
-  params: InventoryListParams = {}
-): Promise<{ items: ApiInventoryExportRow[]; pagination: InventoryListResponse["pagination"] }> {
+  params: Omit<InventoryListParams, "page" | "page_size">,
+  columns: string[],
+  signal?: AbortSignal
+): Promise<{ blob: Blob; filename: string | null }> {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") query.set(key, String(value));
   }
-  const qs = query.toString();
-  return authRequest(`/admin/inventory/export${qs ? `?${qs}` : ""}`, accessToken);
+  for (const column of columns) query.append("columns", column);
+  return authDownloadRequest(`/admin/inventory/export.csv?${query.toString()}`, accessToken, signal);
 }

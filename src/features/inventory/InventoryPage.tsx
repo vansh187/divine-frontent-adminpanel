@@ -16,7 +16,7 @@ import {
   changeInventoryStatus,
   getInventoryUnit,
   listInventory,
-  listInventoryExport,
+  downloadInventoryCsv,
   listInventoryProjects,
   type ApiInventoryProject,
   type ApiInventoryStatusChange,
@@ -28,7 +28,6 @@ import {
 import { useAuth } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
 import { CsvActions } from "../csv/CsvActions";
-import { pagedRows } from "../csv/csvModel";
 import { inventoryCsv } from "../csv/sections";
 import {
   INVENTORY_STATUS_LABELS,
@@ -266,15 +265,18 @@ export function InventoryPage() {
           <CsvActions
             section={inventoryCsv}
             disabled={!project}
-            loadRows={pagedRows((token, p, size) =>
-              listInventoryExport(token, {
-                project_name: project ?? undefined,
-                status: status === "ALL" ? undefined : status,
-                search: search || undefined,
-                page: p,
-                page_size: size,
-              })
-            )}
+            downloadFile={(token, columns, signal) =>
+              downloadInventoryCsv(
+                token,
+                {
+                  project_name: project ?? undefined,
+                  status: status === "ALL" ? undefined : status,
+                  search: search || undefined,
+                },
+                columns,
+                signal
+              )
+            }
           />
         }
       />

@@ -15,9 +15,12 @@ import {
   createCustomer,
   listCustomers,
   type ApiCustomer,
+  type CustomerSource,
   type CustomerStatus,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { CUSTOMER_SOURCE_LABELS, customerSourceLabel } from "./customerSource";
+import { PlotPlans } from "./PlotPlans";
 import { CsvActions } from "../csv/CsvActions";
 import { pagedRows } from "../csv/csvModel";
 import { customersCsv } from "../csv/sections";
@@ -56,7 +59,7 @@ export function CustomersListPage() {
   const filters = useMemo(
     () => ({
       search: search || undefined,
-      source: source === "ALL" ? undefined : (source as "WEBSITE" | "BROKER_CHANNEL"),
+      source: source === "ALL" ? undefined : (source as CustomerSource),
       status: status === "ALL" ? undefined : (status as CustomerStatus),
     }),
     [search, source, status]
@@ -183,8 +186,11 @@ export function CustomersListPage() {
           }}
         >
           <option value="ALL">All sources</option>
-          <option value="WEBSITE">Website</option>
-          <option value="BROKER_CHANNEL">Channel Partner</option>
+          {Object.entries(CUSTOMER_SOURCE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </Select>
         <Select
           value={status}
@@ -212,12 +218,13 @@ export function CustomersListPage() {
           <Th>Customer</Th>
           <Th>Contact</Th>
           <Th>Source</Th>
+          <Th>Payment plan</Th>
           <Th>Status</Th>
         </THead>
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={4} className="px-4 py-10 text-center text-sm text-text-muted">
+              <td colSpan={5} className="px-4 py-10 text-center text-sm text-text-muted">
                 Loading customers...
               </td>
             </tr>
@@ -239,7 +246,10 @@ export function CustomersListPage() {
                     <p className="text-xs text-text-muted">{c.phone ?? "—"}</p>
                   </Td>
                   <Td>
-                    <StatusBadge status={c.source} label={c.source === "WEBSITE" ? "Website" : "Channel Partner"} />
+                    <StatusBadge status={c.source} label={customerSourceLabel(c.source)} />
+                  </Td>
+                  <Td>
+                    <PlotPlans customer={c} />
                   </Td>
                   <Td>
                     <StatusBadge status={c.status} />
@@ -248,7 +258,7 @@ export function CustomersListPage() {
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-sm text-text-muted">
+                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-text-muted">
                     No customers match your filters.
                   </td>
                 </tr>

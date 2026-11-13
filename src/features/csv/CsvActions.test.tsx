@@ -63,6 +63,13 @@ describe("CsvActions export and sample", () => {
     expect(screen.queryByRole("heading", { name: "Export customers" })).not.toBeInTheDocument();
   });
 
+  it("writes a customer's source with the same words as the Customers page", async () => {
+    render(<CsvActions section={customersCsv} loadRows={async (): Promise<ApiCustomer[]> => [{ ...customer, source: "OFFLINE_IMPORT" }]} />);
+    await exportFile();
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
+    expect((await savedText()).split("\r\n")[1]).toContain(",Offline buyer,");
+  });
+
   it("exports only the fields chosen, in the section's column order", async () => {
     render(<CsvActions section={customersCsv} loadRows={async () => [customer]} />);
     await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
@@ -105,7 +112,8 @@ describe("CsvActions export and sample", () => {
   });
 
   it("lists grouped fields under their headings and ticks a whole group at once", async () => {
-    render(<CsvActions section={inventoryCsv} loadRows={async () => inventoryCsv.sample} />);
+    const downloadFile = vi.fn(async () => ({ blob: new Blob(["Plot No\r\nC-12\r\n"]), filename: "inventory-2026-11-13.csv" }));
+    render(<CsvActions section={inventoryCsv} downloadFile={downloadFile} />);
     await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     const client = screen.getByRole("group", { name: "Client" });
     expect(within(client).getAllByRole("checkbox").map((c) => c.closest("label")?.textContent)).toEqual([
@@ -124,11 +132,70 @@ describe("CsvActions export and sample", () => {
     await userEvent.click(screen.getByRole("button", { name: "Export 6 fields" }));
 
     await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
-    const lines = (await savedText()).split("\r\n");
-    // The client's column order, not the order the fields were ticked in.
-    expect(lines[0]).toBe("Plot No,Client Name,Phone,Alternative Number,Email ID,Address");
-    expect(lines[1]).toBe('C-12,Dheeraj Nirwal,9876543210,9812345678,dheeraj@example.com,"H.No. 543, Sonipat, Haryana"');
-    expect(lines[2]).toBe("C-13,,,,,");
+    // The server's column keys, in the client's column order, not the order they were ticked in.
+    expect(downloadFile).toHaveBeenCalledWith(
+      "token",
+      ["unit_number", "client_name", "phone", "alternative_number", "email", "address"],
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("starts with the client's sheet columns and leaves the extra details unticked", async () => {
+    render(<CsvActions section={inventoryCsv} downloadFile={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(screen.getByText("20 of 28 fields")).toBeInTheDocument();
+    const more = screen.getByRole("group", { name: "More Details" });
+    expect(within(more).getByRole("checkbox", { name: "Plot ID" })).not.toBeChecked();
+    expect(within(more).getByRole<HTMLInputElement>("checkbox", { name: "More Details" }).checked).toBe(false);
+    expect(screen.getByRole("checkbox", { name: "Plot Address" })).toBeChecked();
+  });
+
+  it("saves the server's file exactly as it comes, under the server's file name", async () => {
+    // The server already guards cells against formulas; the panel must not add a second apostrophe.
+    const content = "﻿Plot No,Phone\r\nC-12,'+919876543210\r\n";
+    const blob = new Blob([content], { type: "text/csv" });
+    render(<CsvActions section={inventoryCsv} downloadFile={async () => ({ blob, filename: "inventory-2026-11-13.csv" })} />);
+    await exportFile();
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
+    expect(saveBlob.mock.calls[0][0]).toBe(blob);
+    expect(saveBlob.mock.calls[0][1]).toBe("inventory-2026-11-13.csv");
+  });
+
+  it("says so when the server's file has no records", async () => {
+    render(
+      <CsvActions
+        section={inventoryCsv}
+        downloadFile={async () => ({ blob: new Blob(["﻿Plot No,Phone\r\n"]), filename: null })}
+      />
+    );
+    await exportFile();
+    expect(await screen.findByRole("alert")).toHaveTextContent("There are no plots to export.");
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("passes on the server's message when a server-built file would be too big", async () => {
+    const tooBig = new ApiError(413, "More than 1,00,000 plots match. Narrow the filters and export in parts.", "export_too_large");
+    render(<CsvActions section={inventoryCsv} downloadFile={vi.fn().mockRejectedValue(tooBig)} />);
+    await exportFile();
+    expect(await screen.findByRole("alert")).toHaveTextContent("More than 1,00,000 plots match. Narrow the filters");
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("finds the first record of a large server file without reading all of it", async () => {
+    const header = "Plot No,Phone\r\n";
+    const big = new Blob(["\ufeff", header, "C-1,9876543210\r\n".repeat(20000)]);
+    expect(big.size).toBeGreaterThan(64 * 1024);
+    const slice = vi.spyOn(big, "slice");
+    render(<CsvActions section={inventoryCsv} downloadFile={async () => ({ blob: big, filename: null })} />);
+    await exportFile();
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledWith(big, expect.stringMatching(/^inventory-/)));
+    expect(slice).toHaveBeenCalledWith(0, 64 * 1024);
+  });
+
+  it("explains a failed server download", async () => {
+    render(<CsvActions section={inventoryCsv} downloadFile={vi.fn().mockRejectedValue(new ApiError(500, "internal_error"))} />);
+    await exportFile();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Export failed: the server hit an error.");
   });
 
   it("explains an empty or failed export instead of saving a file", async () => {

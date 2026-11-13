@@ -17,6 +17,7 @@ import type {
 } from "../../lib/api";
 import { titleCase } from "../../lib/format";
 import { inventoryStatusLabel } from "../inventory/inventoryLabels";
+import { customerSourceLabel } from "../customers/customerSource";
 import {
   BOOKING_DATE,
   DESCRIPTION_MAX,
@@ -61,12 +62,6 @@ const PROJECTS: Record<string, string> = {
   "ops-divine-greens": "Ops Divine Greens",
 };
 
-const CUSTOMER_SOURCES: Record<string, string> = {
-  WEBSITE: "Website",
-  BROKER_CHANNEL: "Channel Partner",
-  OFFLINE_IMPORT: "Offline Import",
-};
-
 const PAYMENT_METHODS: Record<string, string> = {
   razorpay: "Razorpay",
   zoho: "Zoho Payments",
@@ -95,7 +90,7 @@ export const customersCsv: CsvSection<ApiCustomer> = {
     { header: "Full Name", value: (c) => c.full_name, field: "full_name", required: true, parse: fullName },
     { header: "Email", value: (c) => c.email, field: "email", required: true, unique: true, parse: email },
     { header: "Phone", value: (c) => c.phone, field: "phone", required: true, parse: phone },
-    { header: "Source", value: (c) => label(CUSTOMER_SOURCES, c.source) },
+    { header: "Source", value: (c) => (c.source ? customerSourceLabel(c.source) : "") },
     { header: "Status", value: (c) => titleCase(c.status) },
     { header: "Created At", value: (c) => stamp(c.created_at) },
     { header: "Last Activity", value: (c) => stamp(c.last_activity_at) },
@@ -514,8 +509,8 @@ export function paymentPlansCsv(existing: ApiPaymentPlan[]): CsvSection<PlanCsvR
 }
 
 // ---------------------------------------------------------------------------
-// Inventory: export-only. Columns in the client's sheet order; `group` is the
-// heading each field is listed under when choosing what to export.
+// Inventory: export-only, as a file the server builds. Columns in the client's sheet
+// order; `group` is the heading each field is listed under when choosing what to export.
 // ---------------------------------------------------------------------------
 
 const PLOT = "Plot";
@@ -523,6 +518,7 @@ const PROJECT = "Project & Company";
 const BOOKING = "Booking & Payment Plan";
 const CLIENT = "Client";
 const CO_APPLICANT = "Co-applicant";
+const MORE = "More Details";
 
 const inventorySampleBase: ApiInventoryExportRow = {
   id: "sample-1",
@@ -559,27 +555,38 @@ export const inventoryCsv: CsvSection<ApiInventoryExportRow> = {
   file: "inventory",
   noun: "plots",
   key: (u) => u.id,
+  // `key` is the column's name in the server's file (GET /admin/inventory/export.csv), which
+  // writes the cells; `value` only shapes the Sample CSV.
   columns: [
-    { header: "Plot No", group: PLOT, value: (u) => u.unit_number },
-    { header: "Width (Mtr.)", group: PLOT, value: (u) => u.width_mtr },
-    { header: "Length (Mtr.)", group: PLOT, value: (u) => u.length_mtr },
-    { header: "Area in Sq. Mtr.", group: PLOT, value: (u) => u.area_sqmt },
-    { header: "Area in Sq. Yard", group: PLOT, value: (u) => u.area_sqyd },
-    { header: "Plot Status", group: PLOT, value: (u) => inventoryStatusLabel(u.status) },
-    { header: "Project Name", group: PROJECT, value: (u) => u.project_name },
-    { header: "Company Name", group: PROJECT, value: (u) => u.company_name },
-    { header: "Block", group: PLOT, value: (u) => u.block },
-    { header: "Company Address", group: PROJECT, value: (u) => u.company_address },
-    { header: "Payment Plan", group: BOOKING, value: (u) => u.payment_plan },
-    { header: "Client Name", group: CLIENT, value: (u) => u.client_name },
-    { header: "Phone", group: CLIENT, value: (u) => u.phone },
-    { header: "Booking Date", group: BOOKING, value: (u) => u.booking_date },
-    { header: "Alternative Number", group: CLIENT, value: (u) => u.alternative_number },
-    { header: "Email ID", group: CLIENT, value: (u) => u.email },
-    { header: "Co-applicant Email", group: CO_APPLICANT, value: (u) => u.co_applicant_email },
-    { header: "Address", group: CLIENT, value: (u) => u.address },
-    { header: "Co-applicant Address", group: CO_APPLICANT, value: (u) => u.co_applicant_address },
-    { header: "Plot Address", group: PLOT, value: (u) => u.plot_address },
+    { header: "Plot No", key: "unit_number", group: PLOT, value: (u) => u.unit_number },
+    { header: "Width (Mtr.)", key: "width_mtr", group: PLOT, value: (u) => u.width_mtr },
+    { header: "Length (Mtr.)", key: "length_mtr", group: PLOT, value: (u) => u.length_mtr },
+    { header: "Area in Sq. Mtr.", key: "area_sqmt", group: PLOT, value: (u) => u.area_sqmt },
+    { header: "Area in Sq. Yard", key: "area_sqyd", group: PLOT, value: (u) => u.area_sqyd },
+    { header: "Plot Status", key: "status", group: PLOT, value: (u) => inventoryStatusLabel(u.status) },
+    { header: "Project Name", key: "project_name", group: PROJECT, value: (u) => u.project_name },
+    { header: "Company Name", key: "company_name", group: PROJECT, value: (u) => u.company_name },
+    { header: "Block", key: "block", group: PLOT, value: (u) => u.block },
+    { header: "Company Address", key: "company_address", group: PROJECT, value: (u) => u.company_address },
+    { header: "Payment Plan", key: "payment_plan", group: BOOKING, value: (u) => u.payment_plan },
+    { header: "Client Name", key: "client_name", group: CLIENT, value: (u) => u.client_name },
+    { header: "Phone", key: "phone", group: CLIENT, value: (u) => u.phone },
+    { header: "Booking Date", key: "booking_date", group: BOOKING, value: (u) => u.booking_date },
+    { header: "Alternative Number", key: "alternative_number", group: CLIENT, value: (u) => u.alternative_number },
+    { header: "Email ID", key: "email", group: CLIENT, value: (u) => u.email },
+    { header: "Co-applicant Email", key: "co_applicant_email", group: CO_APPLICANT, value: (u) => u.co_applicant_email },
+    { header: "Address", key: "address", group: CLIENT, value: (u) => u.address },
+    { header: "Co-applicant Address", key: "co_applicant_address", group: CO_APPLICANT, value: (u) => u.co_applicant_address },
+    { header: "Plot Address", key: "plot_address", group: PLOT, value: (u) => u.plot_address },
+    // Not in the client's sheet: offered, but unticked until chosen.
+    { header: "Plot ID", key: "id", group: MORE, optional: true, value: (u) => u.id },
+    { header: "Type", key: "unit_type", group: MORE, optional: true, value: (u) => u.unit_type },
+    { header: "City", key: "city", group: MORE, optional: true, value: (u) => u.city },
+    { header: "Locality", key: "locality", group: MORE, optional: true, value: (u) => u.locality },
+    { header: "Sale Source", key: "sale_source", group: MORE, optional: true, value: (u) => u.sale_source },
+    { header: "Status Note", key: "status_note", group: MORE, optional: true, value: (u) => u.status_note },
+    { header: "Status Changed At", key: "last_changed_at", group: MORE, optional: true, value: (u) => stamp(u.last_changed_at) },
+    { header: "Status Changed By", key: "last_changed_by_name", group: MORE, optional: true, value: (u) => u.last_changed_by_name },
   ],
   sample: [
     inventorySampleBase,

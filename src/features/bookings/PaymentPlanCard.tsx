@@ -13,7 +13,7 @@ import {
   type ApiPaymentMilestone,
   type InstallmentPaymentMethod,
 } from "../../lib/api";
-import { formatCurrency, formatDate, formatDateTime } from "../../lib/format";
+import { formatCurrency, formatDate, formatDateTime, localDateISO } from "../../lib/format";
 import { planTitle } from "./planTitle";
 
 const METHOD_LABEL: Record<InstallmentPaymentMethod, string> = {
@@ -41,12 +41,6 @@ const STALE_ERROR_MESSAGES: Record<string, string> = {
 const NOTE_MAX_LENGTH = 500;
 
 /** Today's date as YYYY-MM-DD in the admin's local timezone. */
-function todayLocal() {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 /**
  * Whether a milestone's pay_enabled_from has passed. A bare date ("2026-02-10") is a
  * calendar day and compared as one; a full timestamp is compared as an instant so a
@@ -55,7 +49,7 @@ function todayLocal() {
  */
 function isPayableNow(payEnabledFrom: string | null | undefined) {
   if (!payEnabledFrom) return true;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(payEnabledFrom)) return payEnabledFrom <= todayLocal();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(payEnabledFrom)) return payEnabledFrom <= localDateISO();
   const time = new Date(payEnabledFrom).getTime();
   return Number.isNaN(time) || time <= Date.now();
 }

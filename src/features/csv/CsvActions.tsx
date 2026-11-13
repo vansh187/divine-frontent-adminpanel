@@ -5,6 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { ApiError, importRows, type ImportResult } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { csvBlob } from "../../lib/csv";
+import { localDateISO } from "../../lib/format";
 import { saveBlob } from "../../lib/download";
 import { createIdempotencyKey } from "../../lib/idempotency";
 import {
@@ -21,14 +22,23 @@ import {
   type RowIssue,
 } from "./csvModel";
 
-interface CsvActionsProps<T> {
+/** A file the server builds with the chosen columns (their `key`s), for sections that export that way. */
+export type DownloadFile = (
+  token: string,
+  columns: string[],
+  signal: AbortSignal
+) => Promise<{ blob: Blob; filename: string | null }>;
+
+type CsvActionsProps<T> = {
   section: CsvSection<T>;
-  loadRows: LoadRows<T>;
   /** Called after a successful import, to reload the page's list. */
   onImported?: () => void;
   /** Disables Export and Import, e.g. while the page's own data is still loading. */
   disabled?: boolean;
-}
+} & (
+  | { /** Loads the records; the panel writes the file. */ loadRows: LoadRows<T>; downloadFile?: never }
+  | { /** The server writes the file; nothing is re-escaped or rewritten here. */ downloadFile: DownloadFile; loadRows?: never }
+);
 
 /** Export / Import / Sample CSV for one section. A crash here never takes the page down. */
 export function CsvActions<T>(props: CsvActionsProps<T>) {
@@ -48,16 +58,13 @@ export function CsvActions<T>(props: CsvActionsProps<T>) {
 const SEGMENT =
   "px-3 py-2 text-xs font-semibold text-text tabular-nums transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50";
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function exportErrorMessage(err: unknown) {
   if (err instanceof ExportTooLargeError) return err.message;
   if (!(err instanceof ApiError)) return "Export failed: could not reach the server. Check your connection and try again.";
   if (err.status >= 500) return "Export failed: the server hit an error. Please try again.";
   if (err.status === 403) return "Export failed: your account isn't allowed to view these records.";
+  // A server-built file that would be too big: the server says how to narrow it.
+  if (err.status === 413) return err.message || "Too many records match. Narrow the filters and export in parts.";
   if (err.status === 422) return "Export failed: the server doesn't accept the current filters. Change them and try again.";
   return `Export failed: ${err.message}`;
 }
@@ -66,7 +73,7 @@ function downloadSample<T>(section: CsvSection<T>) {
   saveBlob(csvBlob(sampleCsv(section)), `${section.file}-sample.csv`);
 }
 
-function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsProps<T>) {
+function CsvToolbar<T>({ section, loadRows, downloadFile, onImported, disabled }: CsvActionsProps<T>) {
   const [error, setError] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -120,7 +127,14 @@ function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsPr
           {error}
         </p>
       )}
-      {exportOpen && <ExportDialog section={section} loadRows={loadRows} onClose={() => setExportOpen(false)} />}
+      {exportOpen && (
+        <ExportDialog
+          section={section}
+          loadRows={loadRows}
+          downloadFile={downloadFile}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
       {importOpen && (
         <ImportDialog section={section} onClose={() => setImportOpen(false)} onImported={onImported} />
       )}
@@ -134,9 +148,10 @@ function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsPr
 
 const fieldsKey = (file: string) => `csv-export-fields:${file}`;
 
-/** The fields this browser last exported for the section, if they still exist; else all. */
+/** The fields this browser last exported for the section, if they still exist; else all but the optional ones. */
 function rememberedFields<T>(section: CsvSection<T>): Set<string> {
   const all = section.columns.map((c) => c.header);
+  const defaults = section.columns.filter((c) => !c.optional).map((c) => c.header);
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(fieldsKey(section.file)) ?? "null");
     if (Array.isArray(saved)) {
@@ -144,9 +159,9 @@ function rememberedFields<T>(section: CsvSection<T>): Set<string> {
       if (kept.length > 0) return new Set(kept);
     }
   } catch {
-    // Storage blocked or unreadable: start with every field.
+    // Storage blocked or unreadable: start with the default fields.
   }
-  return new Set(all);
+  return new Set(defaults);
 }
 
 function rememberFields(file: string, chosen: Set<string>) {
@@ -199,13 +214,25 @@ function GroupCheckbox({
   );
 }
 
+/**
+ * A server-built file with nothing but its header line has no records. Only the start of the
+ * file is read: anything after the header's line break means there is at least one record.
+ */
+async function hasRecords(blob: Blob) {
+  const start = await blob.slice(0, 64 * 1024).text();
+  const lineEnd = start.indexOf("\n");
+  return lineEnd >= 0 && start.slice(lineEnd + 1).trim() !== "";
+}
+
 function ExportDialog<T>({
   section,
   loadRows,
+  downloadFile,
   onClose,
 }: {
   section: CsvSection<T>;
-  loadRows: LoadRows<T>;
+  loadRows?: LoadRows<T>;
+  downloadFile?: DownloadFile;
   onClose: () => void;
 }) {
   const { accessToken } = useAuth();
@@ -245,6 +272,20 @@ function ExportDialog<T>({
     setError(null);
     setProgress("Exporting…");
     try {
+      if (downloadFile) {
+        const columns = section.columns.filter((c) => chosen.has(c.header)).map((c) => c.key ?? c.header);
+        const file = await downloadFile(accessToken, columns, run.signal);
+        if (run.signal.aborted) return;
+        if (!(await hasRecords(file.blob))) {
+          setError(`There are no ${section.noun} to export. Check the search and filters.`);
+          return;
+        }
+        saveBlob(file.blob, file.filename ?? `${section.file}-${localDateISO()}.csv`);
+        rememberFields(section.file, chosen);
+        onClose();
+        return;
+      }
+      if (!loadRows) return;
       const loaded = await loadRows(
         accessToken,
         (done, total) => {
@@ -258,7 +299,7 @@ function ExportDialog<T>({
         setError(`There are no ${section.noun} to export. Check the search and filters.`);
         return;
       }
-      saveBlob(csvBlob(sectionCsv(section, rows, chosen)), `${section.file}-${today()}.csv`);
+      saveBlob(csvBlob(sectionCsv(section, rows, chosen)), `${section.file}-${localDateISO()}.csv`);
       rememberFields(section.file, chosen);
       onClose();
     } catch (err) {

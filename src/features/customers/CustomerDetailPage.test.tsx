@@ -6,10 +6,12 @@ import { CustomerDetailPage } from "./CustomerDetailPage";
 
 const listBookings = vi.fn();
 const listCustomers = vi.fn();
+const getCustomerDetail = vi.fn();
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
   listBookings: (...args: unknown[]) => listBookings(...args),
   listCustomers: (...args: unknown[]) => listCustomers(...args),
+  getCustomerDetail: (...args: unknown[]) => getCustomerDetail(...args),
   getBooking: vi.fn(),
 }));
 vi.mock("../../lib/auth", () => ({ useAuth: () => ({ accessToken: "token" }) }));
@@ -28,6 +30,8 @@ const customer: ApiCustomer = {
 beforeEach(() => {
   listBookings.mockReset();
   listCustomers.mockReset();
+  getCustomerDetail.mockReset();
+  getCustomerDetail.mockResolvedValue({ plots: [] });
 });
 
 describe("CustomerDetailPage", () => {

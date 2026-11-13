@@ -8,6 +8,7 @@ import { ApiError, listCustomers, type ApiCustomer } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
 import { CustomerPaymentPlans } from "./CustomerPaymentPlans";
+import { customerSourceLabel } from "./customerSource";
 
 interface CustomerRouteState {
   customer?: ApiCustomer;
@@ -164,7 +165,7 @@ export function CustomerDetailPage() {
                     <dd>
                       <StatusBadge
                         status={customer.source}
-                        label={customer.source === "WEBSITE" ? "Website" : "Channel Partner"}
+                        label={customerSourceLabel(customer.source)}
                       />
                     </dd>
                   </div>

@@ -9,6 +9,12 @@ export type ParseResult = { value: unknown } | { error: string };
 
 export interface CsvColumn<T> {
   header: string;
+  /** Heading the column is listed under when choosing which fields to export. */
+  group?: string;
+  /** Extra detail, left unticked until the admin chooses it (and left out of the sample). */
+  optional?: boolean;
+  /** The column's name in a file the server builds (see CsvActions' `downloadFile`). */
+  key?: string;
   value: (row: T) => CsvCell;
   /** Request field the import sends this column as. Columns without one are export-only. */
   field?: string;
@@ -151,16 +157,22 @@ export function time(raw: string): ParseResult {
 // Export and sample
 // ---------------------------------------------------------------------------
 
-export function sectionCsv<T>(section: CsvSection<T>, rows: T[]): string {
+/**
+ * The file for `rows`. `headers` limits it to the fields the admin chose; columns keep the
+ * section's order whatever order they were picked in.
+ */
+export function sectionCsv<T>(section: CsvSection<T>, rows: T[], headers?: Iterable<string>): string {
+  const chosen = headers ? new Set(headers) : null;
+  const columns = chosen ? section.columns.filter((c) => chosen.has(c.header)) : section.columns;
   return toCsv(
-    section.columns.map((c) => c.header),
-    rows.map((row) => section.columns.map((c) => c.value(row)))
+    columns.map((c) => c.header),
+    rows.map((row) => columns.map((c) => c.value(row)))
   );
 }
 
 /** Importable sections: just the columns an import reads. Others: the export layout. */
 export function sampleCsv<T>(section: CsvSection<T>): string {
-  const columns = section.import ? section.columns.filter((c) => c.field) : section.columns;
+  const columns = section.import ? section.columns.filter((c) => c.field) : section.columns.filter((c) => !c.optional);
   return sectionCsv({ ...section, columns }, section.sample);
 }
 

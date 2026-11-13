@@ -114,3 +114,11 @@ export const IconCamera = (props: SVGProps<SVGSVGElement>) => (
     <circle cx="12" cy="14" r="3.4" />
   </svg>
 );
+
+/** A site plan split into plots. */
+export const IconInventory = (props: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...props}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M3 12h18M12 3v18M7.5 7.5h.01M16.5 16.5h.01" />
+  </svg>
+);

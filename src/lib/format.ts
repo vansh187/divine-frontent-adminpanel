@@ -22,6 +22,12 @@ export function initials(name: string): string {
     .toUpperCase();
 }
 
+/** Today (or `date`) as YYYY-MM-DD in the admin's own time zone, not UTC. */
+export function localDateISO(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "-";
   const date = new Date(value);

@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { titleCase } from "../../lib/format";
 
-type Tone = "success" | "warning" | "danger" | "info" | "neutral";
+export type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const TONE_CLASSES: Record<Tone, string> = {
   success: "bg-success-bg text-success",
@@ -69,8 +69,8 @@ const STATUS_TONE: Record<string, Tone> = {
   REVERSED: "neutral",
 };
 
-export function StatusBadge({ status, label }: { status: string; label?: string }) {
-  const tone = STATUS_TONE[status] ?? "neutral";
+export function StatusBadge({ status, label, tone: toneOverride }: { status: string; label?: string; tone?: Tone }) {
+  const tone = toneOverride ?? STATUS_TONE[status] ?? "neutral";
   return (
     <span
       className={clsx(

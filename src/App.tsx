@@ -21,6 +21,7 @@ import { NotFoundPage } from "./features/misc/NotFoundPage";
 import { AdminApprovalsPage } from "./features/approvals/AdminApprovalsPage";
 import { PaymentPlansPage } from "./features/paymentPlans/PaymentPlansPage";
 import { NewPaymentPlanPage } from "./features/paymentPlans/NewPaymentPlanPage";
+import { InventoryPage } from "./features/inventory/InventoryPage";
 
 function App() {
   return (
@@ -46,6 +47,7 @@ function App() {
         <Route path="brokers/:id" element={<BrokerDetailPage />} />
         <Route path="site-visits" element={<SiteVisitsPage />} />
         <Route path="site-visits/:id" element={<SiteVisitDetailPage />} />
+        <Route path="inventory" element={<InventoryPage />} />
         <Route path="bookings" element={<BookingsQueuePage />} />
         <Route path="bookings/:id" element={<BookingDetailPage />} />
         <Route path="payment-plans" element={<PaymentPlansPage />} />

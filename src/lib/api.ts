@@ -1103,3 +1103,114 @@ export function importRows(
     body: JSON.stringify({ rows }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Inventory (admin): plots per project, their status and status history.
+// ---------------------------------------------------------------------------
+
+export type InventoryStatus = "available" | "held" | "reserved" | "pending_kyc_review" | "booked" | "sold";
+/** The statuses an admin can set by hand; the others come from bookings and channel partners. */
+export type InventoryManualStatus = "available" | "held" | "sold";
+/** Why a plot's status can't be changed here: it belongs to another flow right now. */
+export type InventoryStatusLock = "partner_reservation" | "booking" | "buyer_linked";
+
+export interface ApiInventoryProject {
+  project_name: string;
+  total: number;
+  available: number;
+  held: number;
+  reserved: number;
+  pending_kyc_review: number;
+  booked: number;
+  sold: number;
+}
+
+export interface ApiInventoryUnit {
+  id: string;
+  project_name: string;
+  city: string | null;
+  locality: string | null;
+  block: string | null;
+  unit_number: string;
+  unit_type: string | null;
+  width_mtr: number | null;
+  length_mtr: number | null;
+  area_sqmt: number | null;
+  area_sqyd: number | null;
+  status: InventoryStatus;
+  sale_source: string | null;
+  status_note: string | null;
+  last_changed_at: string | null;
+  last_changed_by_name: string | null;
+}
+
+export interface ApiInventoryStatusChange {
+  id: string;
+  /** null on the row recorded when the plot was added. */
+  old_status: InventoryStatus | null;
+  /** "removed" when a sheet-sync rollback deleted the plot. */
+  new_status: InventoryStatus | "removed";
+  changed_by_role: "admin" | "broker" | "customer" | "system";
+  changed_by_name: string;
+  source: string;
+  note: string | null;
+  changed_at: string;
+}
+
+export interface ApiInventoryUnitDetail extends ApiInventoryUnit {
+  booked_at: string | null;
+  status_lock: InventoryStatusLock | null;
+  allowed_statuses: InventoryManualStatus[];
+  /** Newest first. */
+  history: ApiInventoryStatusChange[];
+}
+
+export interface InventoryListResponse {
+  items: ApiInventoryUnit[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface InventoryListParams {
+  project_name?: string;
+  status?: InventoryStatus;
+  search?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export function listInventoryProjects(accessToken: string): Promise<{ items: ApiInventoryProject[] }> {
+  return authRequest<{ items: ApiInventoryProject[] }>("/admin/inventory/projects", accessToken);
+}
+
+export function listInventory(accessToken: string, params: InventoryListParams = {}): Promise<InventoryListResponse> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest<InventoryListResponse>(`/admin/inventory${qs ? `?${qs}` : ""}`, accessToken);
+}
+
+export function getInventoryUnit(accessToken: string, id: string): Promise<ApiInventoryUnitDetail> {
+  return authRequest<ApiInventoryUnitDetail>(`/admin/inventory/${encodeURIComponent(id)}`, accessToken);
+}
+
+/**
+ * Changes a plot's status. `expectedStatus` is the status the admin was looking at: if the
+ * plot changed since, the server refuses with 409 `status_changed` instead of overwriting it.
+ */
+export function changeInventoryStatus(
+  accessToken: string,
+  id: string,
+  payload: { status: InventoryManualStatus; expected_status: InventoryStatus; note?: string }
+): Promise<ApiInventoryUnitDetail> {
+  return authRequest<ApiInventoryUnitDetail>(`/admin/inventory/${encodeURIComponent(id)}/status`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

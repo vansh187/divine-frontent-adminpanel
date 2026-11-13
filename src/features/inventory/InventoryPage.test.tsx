@@ -12,12 +12,16 @@ import { InventoryPage } from "./InventoryPage";
 
 const listInventoryProjects = vi.fn();
 const listInventory = vi.fn();
+const listInventoryExport = vi.fn();
+const saveBlob = vi.fn();
+vi.mock("../../lib/download", () => ({ saveBlob: (...args: unknown[]) => saveBlob(...args) }));
 const getInventoryUnit = vi.fn();
 const changeInventoryStatus = vi.fn();
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
   listInventoryProjects: (...args: unknown[]) => listInventoryProjects(...args),
   listInventory: (...args: unknown[]) => listInventory(...args),
+  listInventoryExport: (...args: unknown[]) => listInventoryExport(...args),
   getInventoryUnit: (...args: unknown[]) => getInventoryUnit(...args),
   changeInventoryStatus: (...args: unknown[]) => changeInventoryStatus(...args),
 }));
@@ -190,5 +194,35 @@ describe("InventoryPage", () => {
     await waitFor(() =>
       expect(screen.getByText("Status", { selector: "dt" }).parentElement).toHaveTextContent("On Hold")
     );
+  });
+
+  it("exports the chosen fields for the selected project and filters", async () => {
+    localStorage.clear();
+    listInventoryExport.mockResolvedValue({
+      items: [{ ...unit({ status: "sold" }), client_name: "Dheeraj Nirwal", phone: "9876543210", payment_plan: "PP2" }],
+      pagination: { page: 1, page_size: 100, total_items: 1, total_pages: 1 },
+    });
+    const user = renderPage();
+    await screen.findByText("A-9");
+    await user.selectOptions(screen.getByLabelText("Status"), "sold");
+    await user.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(screen.getByRole("heading", { name: "Export plots" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+    for (const field of ["Plot No", "Plot Status", "Client Name", "Payment Plan"]) {
+      await user.click(screen.getByRole("checkbox", { name: field }));
+    }
+    await user.click(screen.getByRole("button", { name: "Export 4 fields" }));
+
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
+    expect(listInventoryExport).toHaveBeenCalledWith(
+      "token",
+      expect.objectContaining({ project_name: "OPS Divine Greens", status: "sold", page: 1, page_size: 100 })
+    );
+    const text = await (saveBlob.mock.calls[0][0] as Blob).text();
+    expect(text.split("\r\n").slice(0, 2)).toEqual([
+      "Plot No,Plot Status,Payment Plan,Client Name",
+      "A-9,Sold,PP2,Dheeraj Nirwal",
+    ]);
+    expect(saveBlob.mock.calls[0][1]).toMatch(/^inventory-\d{4}-\d{2}-\d{2}\.csv$/);
   });
 });

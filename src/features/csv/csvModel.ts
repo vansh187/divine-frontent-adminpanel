@@ -9,6 +9,8 @@ export type ParseResult = { value: unknown } | { error: string };
 
 export interface CsvColumn<T> {
   header: string;
+  /** Heading the column is listed under when choosing which fields to export. */
+  group?: string;
   value: (row: T) => CsvCell;
   /** Request field the import sends this column as. Columns without one are export-only. */
   field?: string;
@@ -151,10 +153,16 @@ export function time(raw: string): ParseResult {
 // Export and sample
 // ---------------------------------------------------------------------------
 
-export function sectionCsv<T>(section: CsvSection<T>, rows: T[]): string {
+/**
+ * The file for `rows`. `headers` limits it to the fields the admin chose; columns keep the
+ * section's order whatever order they were picked in.
+ */
+export function sectionCsv<T>(section: CsvSection<T>, rows: T[], headers?: Iterable<string>): string {
+  const chosen = headers ? new Set(headers) : null;
+  const columns = chosen ? section.columns.filter((c) => chosen.has(c.header)) : section.columns;
   return toCsv(
-    section.columns.map((c) => c.header),
-    rows.map((row) => section.columns.map((c) => c.value(row)))
+    columns.map((c) => c.header),
+    rows.map((row) => columns.map((c) => c.value(row)))
   );
 }
 

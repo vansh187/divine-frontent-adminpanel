@@ -16,6 +16,7 @@ import {
   changeInventoryStatus,
   getInventoryUnit,
   listInventory,
+  listInventoryExport,
   listInventoryProjects,
   type ApiInventoryProject,
   type ApiInventoryStatusChange,
@@ -26,6 +27,9 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
+import { CsvActions } from "../csv/CsvActions";
+import { pagedRows } from "../csv/csvModel";
+import { inventoryCsv } from "../csv/sections";
 import {
   INVENTORY_STATUS_LABELS,
   STATUS_LOCK_MESSAGES,
@@ -255,7 +259,25 @@ export function InventoryPage() {
 
   return (
     <div>
-      <PageHeader title="Inventory" subtitle="Plots in each project and whether they are available or sold" />
+      <PageHeader
+        title="Inventory"
+        subtitle="Plots in each project and whether they are available or sold"
+        actions={
+          <CsvActions
+            section={inventoryCsv}
+            disabled={!project}
+            loadRows={pagedRows((token, p, size) =>
+              listInventoryExport(token, {
+                project_name: project ?? undefined,
+                status: status === "ALL" ? undefined : status,
+                search: search || undefined,
+                page: p,
+                page_size: size,
+              })
+            )}
+          />
+        }
+      />
 
       {projectsError && (
         <div className="mb-4 rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">{projectsError}</div>

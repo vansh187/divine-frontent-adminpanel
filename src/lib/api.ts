@@ -1214,3 +1214,32 @@ export function changeInventoryStatus(
     body: JSON.stringify(payload),
   });
 }
+
+/** One plot for the Inventory CSV export. Buyer fields are null for a plot nobody has bought. */
+export interface ApiInventoryExportRow extends ApiInventoryUnit {
+  company_name: string | null;
+  company_address: string | null;
+  plot_address: string | null;
+  payment_plan: string | null;
+  client_name: string | null;
+  phone: string | null;
+  alternative_number: string | null;
+  email: string | null;
+  address: string | null;
+  co_applicant_email: string | null;
+  co_applicant_address: string | null;
+  /** YYYY-MM-DD */
+  booking_date: string | null;
+}
+
+export function listInventoryExport(
+  accessToken: string,
+  params: InventoryListParams = {}
+): Promise<{ items: ApiInventoryExportRow[]; pagination: InventoryListResponse["pagination"] }> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return authRequest(`/admin/inventory/export${qs ? `?${qs}` : ""}`, accessToken);
+}

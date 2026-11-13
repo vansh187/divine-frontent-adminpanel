@@ -7,6 +7,7 @@ import type {
   ApiBookingListItem,
   ApiBroker,
   ApiCustomer,
+  ApiInventoryExportRow,
   ApiPaymentPlan,
   ApiPlanInstalment,
   ApiRefundListItem,
@@ -15,6 +16,7 @@ import type {
   PlanChargeHead,
 } from "../../lib/api";
 import { titleCase } from "../../lib/format";
+import { inventoryStatusLabel } from "../inventory/inventoryLabels";
 import {
   BOOKING_DATE,
   DESCRIPTION_MAX,
@@ -510,3 +512,93 @@ export function paymentPlansCsv(existing: ApiPaymentPlan[]): CsvSection<PlanCsvR
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Inventory: export-only. Columns in the client's sheet order; `group` is the
+// heading each field is listed under when choosing what to export.
+// ---------------------------------------------------------------------------
+
+const PLOT = "Plot";
+const PROJECT = "Project & Company";
+const BOOKING = "Booking & Payment Plan";
+const CLIENT = "Client";
+const CO_APPLICANT = "Co-applicant";
+
+const inventorySampleBase: ApiInventoryExportRow = {
+  id: "sample-1",
+  project_name: "Suraksha Enclave",
+  city: "Ganaur",
+  locality: "Sector-15",
+  block: "C",
+  unit_number: "C-12",
+  unit_type: "plot",
+  width_mtr: 7.45,
+  length_mtr: 13.404,
+  area_sqmt: 99.86,
+  area_sqyd: 119.43,
+  status: "sold",
+  sale_source: "offline",
+  status_note: null,
+  last_changed_at: null,
+  last_changed_by_name: null,
+  company_name: "Rama Krishna Buildwell Pvt. Ltd.",
+  company_address: "Suraksha Enclave Site Office - Village Garhi Kesri, Sector-15, Ganaur, Sonipat, Haryana",
+  plot_address: "Plot No C-12, Suraksha Enclave, Sector-15, Ganaur",
+  payment_plan: "PP2/CLP/10-40-50",
+  client_name: "Dheeraj Nirwal",
+  phone: "9876543210",
+  alternative_number: "9812345678",
+  email: "dheeraj@example.com",
+  address: "H.No. 543, Sonipat, Haryana",
+  co_applicant_email: "pooja@example.com",
+  co_applicant_address: "H.No. 543, Sonipat, Haryana",
+  booking_date: "2026-10-05",
+};
+
+export const inventoryCsv: CsvSection<ApiInventoryExportRow> = {
+  file: "inventory",
+  noun: "plots",
+  key: (u) => u.id,
+  columns: [
+    { header: "Plot No", group: PLOT, value: (u) => u.unit_number },
+    { header: "Width (Mtr.)", group: PLOT, value: (u) => u.width_mtr },
+    { header: "Length (Mtr.)", group: PLOT, value: (u) => u.length_mtr },
+    { header: "Area in Sq. Mtr.", group: PLOT, value: (u) => u.area_sqmt },
+    { header: "Area in Sq. Yard", group: PLOT, value: (u) => u.area_sqyd },
+    { header: "Plot Status", group: PLOT, value: (u) => inventoryStatusLabel(u.status) },
+    { header: "Project Name", group: PROJECT, value: (u) => u.project_name },
+    { header: "Company Name", group: PROJECT, value: (u) => u.company_name },
+    { header: "Block", group: PLOT, value: (u) => u.block },
+    { header: "Company Address", group: PROJECT, value: (u) => u.company_address },
+    { header: "Payment Plan", group: BOOKING, value: (u) => u.payment_plan },
+    { header: "Client Name", group: CLIENT, value: (u) => u.client_name },
+    { header: "Phone", group: CLIENT, value: (u) => u.phone },
+    { header: "Booking Date", group: BOOKING, value: (u) => u.booking_date },
+    { header: "Alternative Number", group: CLIENT, value: (u) => u.alternative_number },
+    { header: "Email ID", group: CLIENT, value: (u) => u.email },
+    { header: "Co-applicant Email", group: CO_APPLICANT, value: (u) => u.co_applicant_email },
+    { header: "Address", group: CLIENT, value: (u) => u.address },
+    { header: "Co-applicant Address", group: CO_APPLICANT, value: (u) => u.co_applicant_address },
+    { header: "Plot Address", group: PLOT, value: (u) => u.plot_address },
+  ],
+  sample: [
+    inventorySampleBase,
+    {
+      ...inventorySampleBase,
+      id: "sample-2",
+      unit_number: "C-13",
+      status: "available",
+      sale_source: null,
+      plot_address: "Plot No C-13, Suraksha Enclave, Sector-15, Ganaur",
+      payment_plan: null,
+      client_name: null,
+      phone: null,
+      alternative_number: null,
+      email: null,
+      address: null,
+      co_applicant_email: null,
+      co_applicant_address: null,
+      booking_date: null,
+    },
+  ],
+};

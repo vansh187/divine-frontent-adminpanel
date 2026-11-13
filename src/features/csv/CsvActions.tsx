@@ -67,40 +67,9 @@ function downloadSample<T>(section: CsvSection<T>) {
 }
 
 function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsProps<T>) {
-  const { accessToken } = useAuth();
-  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const exportRun = useRef<AbortController | null>(null);
-
-  // Leaving the page stops an export: no more requests, and no file saved afterwards.
-  useEffect(() => () => exportRun.current?.abort(), []);
-
-  async function handleExport() {
-    if (!accessToken || exportRun.current) return;
-    const run = new AbortController();
-    exportRun.current = run;
-    setError(null);
-    setProgress("Exporting…");
-    try {
-      const loaded = await loadRows(
-        accessToken,
-        (done, total) => {
-          if (!run.signal.aborted && total > 1) setProgress(`Exporting ${Math.round((done / total) * 100)}%`);
-        },
-        run.signal
-      );
-      if (run.signal.aborted) return;
-      const rows = uniqueRows(section, loaded);
-      if (rows.length === 0) setError(`There are no ${section.noun} to export. Check the search and filters.`);
-      else saveBlob(csvBlob(sectionCsv(section, rows)), `${section.file}-${today()}.csv`);
-    } catch (err) {
-      if (!run.signal.aborted) setError(exportErrorMessage(err));
-    } finally {
-      exportRun.current = null;
-      if (!run.signal.aborted) setProgress(null);
-    }
-  }
 
   function handleSample() {
     setError(null);
@@ -118,8 +87,16 @@ function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsPr
         aria-label={`CSV for ${section.noun}`}
         className="inline-flex divide-x divide-border overflow-hidden rounded-xl border border-border bg-surface"
       >
-        <button type="button" className={SEGMENT} onClick={handleExport} disabled={!!progress || disabled}>
-          {progress ?? "Export CSV"}
+        <button
+          type="button"
+          className={SEGMENT}
+          disabled={disabled}
+          onClick={() => {
+            setError(null);
+            setExportOpen(true);
+          }}
+        >
+          Export CSV
         </button>
         {section.import && (
           <button
@@ -143,10 +120,244 @@ function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsPr
           {error}
         </p>
       )}
+      {exportOpen && <ExportDialog section={section} loadRows={loadRows} onClose={() => setExportOpen(false)} />}
       {importOpen && (
         <ImportDialog section={section} onClose={() => setImportOpen(false)} onImported={onImported} />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export: choose the fields, then save every matching record
+// ---------------------------------------------------------------------------
+
+const fieldsKey = (file: string) => `csv-export-fields:${file}`;
+
+/** The fields this browser last exported for the section, if they still exist; else all. */
+function rememberedFields<T>(section: CsvSection<T>): Set<string> {
+  const all = section.columns.map((c) => c.header);
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(fieldsKey(section.file)) ?? "null");
+    if (Array.isArray(saved)) {
+      const kept = all.filter((h) => saved.includes(h));
+      if (kept.length > 0) return new Set(kept);
+    }
+  } catch {
+    // Storage blocked or unreadable: start with every field.
+  }
+  return new Set(all);
+}
+
+function rememberFields(file: string, chosen: Set<string>) {
+  try {
+    localStorage.setItem(fieldsKey(file), JSON.stringify([...chosen]));
+  } catch {
+    // Not remembering the choice is fine.
+  }
+}
+
+/** Columns in groups, in the order the groups first appear. An ungrouped section is one list. */
+function columnGroups<T>(section: CsvSection<T>) {
+  const groups: { name: string; headers: string[] }[] = [];
+  for (const column of section.columns) {
+    const name = column.group ?? "";
+    let group = groups.find((g) => g.name === name);
+    if (!group) {
+      group = { name, headers: [] };
+      groups.push(group);
+    }
+    group.headers.push(column.header);
+  }
+  return groups;
+}
+
+function GroupCheckbox({
+  label,
+  checked,
+  partial,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  partial: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+      <input
+        type="checkbox"
+        className="h-4 w-4 accent-gold"
+        checked={checked}
+        ref={(el) => {
+          if (el) el.indeterminate = partial;
+        }}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {label}
+    </label>
+  );
+}
+
+function ExportDialog<T>({
+  section,
+  loadRows,
+  onClose,
+}: {
+  section: CsvSection<T>;
+  loadRows: LoadRows<T>;
+  onClose: () => void;
+}) {
+  const { accessToken } = useAuth();
+  const [chosen, setChosen] = useState<Set<string>>(() => rememberedFields(section));
+  const [progress, setProgress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const exportRun = useRef<AbortController | null>(null);
+
+  // Closing the dialog or leaving the page stops an export: no more requests, no file saved.
+  useEffect(() => () => exportRun.current?.abort(), []);
+
+  const all = section.columns.map((c) => c.header);
+  const groups = columnGroups(section);
+  const grouped = groups.some((g) => g.name);
+  const running = !!progress;
+
+  function toggle(headers: string[], on: boolean) {
+    setChosen((prev) => {
+      const next = new Set(prev);
+      for (const h of headers) {
+        if (on) next.add(h);
+        else next.delete(h);
+      }
+      return next;
+    });
+  }
+
+  // An importable section's file can only be imported back with its import columns.
+  const missingForImport = section.import
+    ? section.columns.filter((c) => c.field && (c.required || c.unique) && !chosen.has(c.header)).map((c) => c.header)
+    : [];
+
+  async function handleExport() {
+    if (!accessToken || exportRun.current || chosen.size === 0) return;
+    const run = new AbortController();
+    exportRun.current = run;
+    setError(null);
+    setProgress("Exporting…");
+    try {
+      const loaded = await loadRows(
+        accessToken,
+        (done, total) => {
+          if (!run.signal.aborted && total > 1) setProgress(`Exporting ${Math.round((done / total) * 100)}%`);
+        },
+        run.signal
+      );
+      if (run.signal.aborted) return;
+      const rows = uniqueRows(section, loaded);
+      if (rows.length === 0) {
+        setError(`There are no ${section.noun} to export. Check the search and filters.`);
+        return;
+      }
+      saveBlob(csvBlob(sectionCsv(section, rows, chosen)), `${section.file}-${today()}.csv`);
+      rememberFields(section.file, chosen);
+      onClose();
+    } catch (err) {
+      if (!run.signal.aborted) setError(exportErrorMessage(err));
+    } finally {
+      exportRun.current = null;
+      if (!run.signal.aborted) setProgress(null);
+    }
+  }
+
+  function close() {
+    exportRun.current?.abort();
+    onClose();
+  }
+
+  const linkButton = "font-semibold text-gold underline disabled:opacity-50";
+
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Export ${section.noun}`}
+      footer={
+        <>
+          <Button variant="outline" onClick={close}>
+            Cancel
+          </Button>
+          <Button onClick={() => void handleExport()} disabled={running || chosen.size === 0}>
+            {progress ?? `Export ${chosen.size} field${chosen.size === 1 ? "" : "s"}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p>
+          Choose the fields to include in the file. Every record matching the current search and filters is exported.
+        </p>
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className="font-semibold text-text">
+            {chosen.size} of {all.length} fields
+          </span>
+          <button type="button" className={linkButton} disabled={running} onClick={() => toggle(all, true)}>
+            Select all
+          </button>
+          <button type="button" className={linkButton} disabled={running} onClick={() => toggle(all, false)}>
+            Clear all
+          </button>
+        </div>
+
+        <fieldset disabled={running} className="max-h-[45dvh] space-y-4 overflow-y-auto pr-1">
+          <legend className="sr-only">Fields to export</legend>
+          {groups.map((group) => {
+            const picked = group.headers.filter((h) => chosen.has(h)).length;
+            return (
+              <div
+                key={group.name || "fields"}
+                role={grouped ? "group" : undefined}
+                aria-label={group.name || undefined}
+                className="space-y-2"
+              >
+                {grouped && (
+                  <GroupCheckbox
+                    label={group.name}
+                    checked={picked === group.headers.length}
+                    partial={picked > 0 && picked < group.headers.length}
+                    onChange={(on) => toggle(group.headers, on)}
+                  />
+                )}
+                <div className={grouped ? "grid gap-2 pl-6 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-2"}>
+                  {group.headers.map((header) => (
+                    <label key={header} className="flex items-center gap-2 text-sm text-text">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-gold"
+                        checked={chosen.has(header)}
+                        onChange={(e) => toggle([header], e.target.checked)}
+                      />
+                      {header}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </fieldset>
+
+        {chosen.size === 0 && <p className="text-xs text-warning">Choose at least one field.</p>}
+        {missingForImport.length > 0 && chosen.size > 0 && (
+          <p className="rounded-xl border border-warning/30 bg-warning-bg p-3 text-xs text-warning">
+            To import this file back later, include {missingForImport.join(", ")}.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

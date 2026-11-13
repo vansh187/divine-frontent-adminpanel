@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Avatar } from "../../components/ui/Avatar";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -16,6 +16,9 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
+import { CsvActions } from "../csv/CsvActions";
+import { pagedRows } from "../csv/csvModel";
+import { brokersCsv } from "../csv/sections";
 
 const PAGE_SIZE = 20;
 
@@ -39,6 +42,16 @@ export function BrokersListPage() {
   const [search, setSearch] = useState("");
   const [project, setProject] = useState("ALL");
   const [sort, setSort] = useState<BrokerSort>("-created_at");
+  const [reloadKey, setReloadKey] = useState(0);
+  // Shared by the list and the CSV export, so an export holds exactly what the filters show.
+  const filters = useMemo(
+    () => ({
+      search: search || undefined,
+      project: project === "ALL" ? undefined : (project as BrokerProject),
+      sort,
+    }),
+    [search, project, sort]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -54,13 +67,7 @@ export function BrokersListPage() {
     setLoading(true);
     setLoadError(null);
 
-    listBrokers(accessToken, {
-      page,
-      page_size: PAGE_SIZE,
-      search: search || undefined,
-      project: project === "ALL" ? undefined : (project as BrokerProject),
-      sort,
-    })
+    listBrokers(accessToken, { ...filters, page, page_size: PAGE_SIZE })
       .then((res) => {
         if (cancelled) return;
         setItems(res.items);
@@ -78,7 +85,7 @@ export function BrokersListPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, page, search, project, sort]);
+  }, [accessToken, page, filters, reloadKey]);
 
   function openBroker(broker: ApiBroker) {
     sessionStorage.setItem(`dvi_broker_${broker.id}`, JSON.stringify(broker));
@@ -87,7 +94,17 @@ export function BrokersListPage() {
 
   return (
     <div>
-      <PageHeader title="Channel Partners" subtitle="Live broker records from the admin API" />
+      <PageHeader
+        title="Channel Partners"
+        subtitle="Live broker records from the admin API"
+        actions={
+          <CsvActions
+            section={brokersCsv}
+            loadRows={pagedRows((token, p, size) => listBrokers(token, { ...filters, page: p, page_size: size }))}
+            onImported={() => setReloadKey((k) => k + 1)}
+          />
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput

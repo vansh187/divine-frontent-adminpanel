@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Pagination } from "../../components/ui/Pagination";
@@ -9,6 +9,9 @@ import { Table, Td, Th, THead, Tr } from "../../components/ui/Table";
 import { ApiError, listVisits, type ApiVisit, type VisitOriginType } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { deriveStatus, projectLabel, scheduleLabel, type VisitDisplayStatus } from "../../lib/siteVisitDisplay";
+import { CsvActions } from "../csv/CsvActions";
+import { fetchAllPages } from "../csv/csvModel";
+import { visitsCsv } from "../csv/sections";
 
 const PAGE_SIZE = 20;
 
@@ -29,6 +32,12 @@ export function SiteVisitsPage() {
   const [search, setSearch] = useState("");
   const [originType, setOriginType] = useState<"ALL" | VisitOriginType>("ALL");
   const [status, setStatus] = useState<"ALL" | DisplayStatus>("ALL");
+  const [reloadKey, setReloadKey] = useState(0);
+  // Shared by the list and the CSV export, so an export holds exactly what the filters show.
+  const filters = useMemo(
+    () => ({ search: search || undefined, origin_type: originType === "ALL" ? undefined : originType }),
+    [search, originType]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -44,12 +53,7 @@ export function SiteVisitsPage() {
     setLoading(true);
     setLoadError(null);
 
-    listVisits(accessToken, {
-      page,
-      page_size: PAGE_SIZE,
-      search: search || undefined,
-      origin_type: originType === "ALL" ? undefined : originType,
-    })
+    listVisits(accessToken, { ...filters, page, page_size: PAGE_SIZE })
       .then((res) => {
         if (cancelled) return;
         setItems(res.items);
@@ -67,7 +71,7 @@ export function SiteVisitsPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, page, search, originType]);
+  }, [accessToken, page, filters, reloadKey]);
 
   const visibleItems = status === "ALL" ? items : items.filter((v) => deriveStatus(v) === status);
 
@@ -78,7 +82,25 @@ export function SiteVisitsPage() {
 
   return (
     <div>
-      <PageHeader title="Site Visits" subtitle="Unified customer and channel partner site visits" />
+      <PageHeader
+        title="Site Visits"
+        subtitle="Unified customer and channel partner site visits"
+        actions={
+          <CsvActions
+            section={visitsCsv}
+            loadRows={async (token, onProgress, signal) => {
+              const rows = await fetchAllPages(
+                (p, size) => listVisits(token, { ...filters, page: p, page_size: size }),
+                onProgress,
+                signal
+              );
+              // The status filter is applied in the browser, as on the list.
+              return status === "ALL" ? rows : rows.filter((v) => deriveStatus(v) === status);
+            }}
+            onImported={() => setReloadKey((k) => k + 1)}
+          />
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput

@@ -9,6 +9,8 @@ import { ApiError, listAdminPaymentPlans, setPaymentPlanActive, type ApiPaymentP
 import { useAuth } from "../../lib/auth";
 import { API_ERROR_MESSAGES, planApiErrorMessage } from "./planForm";
 import { PlanDetails, type PlotUsage } from "./PlanDetails";
+import { CsvActions } from "../csv/CsvActions";
+import { paymentPlansCsv, planCsvRows } from "../csv/sections";
 
 // Activation reuses the create form's messages, except where the admin needs different
 // guidance: on activation the clash is with an existing plan, not with what they typed.
@@ -157,6 +159,7 @@ export function PaymentPlansPage() {
   const activeCount = current.filter((p) => p.is_active).length;
   const selected = current.find((p) => p.code === selectedCode) ?? current[0] ?? null;
   const selectedUsage = selected ? plotUsage(plans, selected.code) : null;
+  const plansCsv = useMemo(() => paymentPlansCsv(plans), [plans]);
 
   // Activate / deactivate a plan, after a confirmation step. Only the code and the intended
   // action are kept; the plan itself is always read from the latest list.
@@ -215,7 +218,19 @@ export function PaymentPlansPage() {
       <PageHeader
         title="Payment Plans"
         subtitle="Plans customers can choose when booking a plot"
-        actions={<Button onClick={() => navigate("/admin/payment-plans/new")}>+ Add Payment Plan</Button>}
+        actions={
+          <>
+            <CsvActions
+              section={plansCsv}
+              loadRows={async () => planCsvRows(current, plans)}
+              disabled={loading || !!error}
+              onImported={() => {
+                if (accessToken) fetchPlans(accessToken, { keepOnError: true });
+              }}
+            />
+            <Button onClick={() => navigate("/admin/payment-plans/new")}>+ Add Payment Plan</Button>
+          </>
+        }
       />
 
       {createdCode && (

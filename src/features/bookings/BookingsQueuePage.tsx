@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Pagination } from "../../components/ui/Pagination";
@@ -15,6 +15,9 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatCurrency } from "../../lib/format";
+import { CsvActions } from "../csv/CsvActions";
+import { pagedRows } from "../csv/csvModel";
+import { bookingsCsv } from "../csv/sections";
 
 const PAGE_SIZE = 20;
 
@@ -33,6 +36,15 @@ export function BookingsQueuePage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"ALL" | BookingStatus>("ALL");
   const [kycStatus, setKycStatus] = useState<"ALL" | KycStatus>("ALL");
+  // Shared by the list and the CSV export, so an export holds exactly what the filters show.
+  const filters = useMemo(
+    () => ({
+      search: search || undefined,
+      status: status === "ALL" ? undefined : status,
+      kyc_status: kycStatus === "ALL" ? undefined : kycStatus,
+    }),
+    [search, status, kycStatus]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -48,13 +60,7 @@ export function BookingsQueuePage() {
     setLoading(true);
     setLoadError(null);
 
-    listBookings(accessToken, {
-      page,
-      page_size: PAGE_SIZE,
-      search: search || undefined,
-      status: status === "ALL" ? undefined : status,
-      kyc_status: kycStatus === "ALL" ? undefined : kycStatus,
-    })
+    listBookings(accessToken, { ...filters, page, page_size: PAGE_SIZE })
       .then((res) => {
         if (cancelled) return;
         setItems(res.items ?? []);
@@ -72,11 +78,20 @@ export function BookingsQueuePage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, page, search, status, kycStatus]);
+  }, [accessToken, page, filters]);
 
   return (
     <div>
-      <PageHeader title="Booking Queue" subtitle="KYC and payment review workspace" />
+      <PageHeader
+        title="Booking Queue"
+        subtitle="KYC and payment review workspace"
+        actions={
+          <CsvActions
+            section={bookingsCsv}
+            loadRows={pagedRows((token, p, size) => listBookings(token, { ...filters, page: p, page_size: size }))}
+          />
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput

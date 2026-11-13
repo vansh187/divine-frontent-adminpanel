@@ -33,14 +33,29 @@ export function csvBlob(text: string): Blob {
 export class CsvParseError extends Error {}
 
 /**
+ * The separator the first line uses most, ignoring quoted text: "," normally, ";" from
+ * Excel in some locales, tab from Excel's "Unicode Text" or a copy-paste.
+ */
+function detectDelimiter(firstLine: string): string {
+  const bare = firstLine.replace(/"[^"]*"/g, "");
+  let best = ",";
+  let bestCount = 0;
+  for (const candidate of [",", ";", "\t"]) {
+    const count = bare.split(candidate).length - 1;
+    if (count > bestCount) [best, bestCount] = [candidate, count];
+  }
+  return best;
+}
+
+/**
  * Every record in the file, blank ones included, so record N is spreadsheet row N.
- * Strips a byte-order mark, accepts CRLF / LF / CR, and reads ";"-separated files
- * (Excel's default in some locales) when the header has no commas.
+ * Strips a byte-order mark, accepts CRLF / LF / CR, detects the separator, and allows
+ * spaces before an opening quote (`a, "b,c"`).
  */
 export function parseCsv(text: string): string[][] {
   const start = text.charCodeAt(0) === 0xfeff ? 1 : 0;
-  const firstLine = text.slice(start, text.search(/[\r\n]|$/));
-  const delimiter = !firstLine.includes(",") && firstLine.includes(";") ? ";" : ",";
+  const lineEnd = text.slice(start).search(/[\r\n]/);
+  const delimiter = detectDelimiter(text.slice(start, lineEnd < 0 ? undefined : start + lineEnd));
 
   const rows: string[][] = [];
   let row: string[] = [];
@@ -55,7 +70,10 @@ export function parseCsv(text: string): string[][] {
         field += '"';
         i++;
       } else quoted = false;
-    } else if (ch === '"' && field === "") quoted = true;
+    } else if (ch === '"' && field.trim() === "") {
+      quoted = true;
+      field = "";
+    }
     else if (ch === delimiter) {
       row.push(field);
       field = "";

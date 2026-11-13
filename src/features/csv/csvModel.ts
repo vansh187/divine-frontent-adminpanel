@@ -66,7 +66,8 @@ export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 // Cell parsers. Lenient about the formats Excel produces when it re-saves a file.
 // ---------------------------------------------------------------------------
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// One address: no spaces, separators or brackets, no "..", and a 2+ letter domain ending.
+const EMAIL_RE = /^(?!.*\.\.)[^\s@,;:<>()[\]"]+@[^\s@,;:<>()[\]"]+\.[A-Za-z]{2,}$/;
 
 export function text(max = 200, min = 1) {
   return (raw: string): ParseResult =>
@@ -80,8 +81,10 @@ export function email(raw: string): ParseResult {
 export function phone(raw: string): ParseResult {
   if (/^\d+(\.\d+)?e\+?\d+$/i.test(raw))
     return { error: `Excel changed this number to "${raw}". Format the column as Text, type the number again and save.` };
-  if (raw.length > 20) return { error: "Max 20 characters." };
-  return /\d/.test(raw) ? { value: raw } : { error: "Not a valid phone number." };
+  // "9876543210.0": a whole number some tools write as a decimal.
+  const value = /^\+?\d+\.0+$/.test(raw) ? raw.replace(/\.0+$/, "") : raw;
+  if (value.length > 20) return { error: "Max 20 characters." };
+  return /\d/.test(value) ? { value } : { error: "Not a valid phone number." };
 }
 
 const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -99,17 +102,34 @@ export function oneOf(options: Record<string, string>) {
   };
 }
 
-/** YYYY-MM-DD, or DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY as Excel writes in India. Sent as YYYY-MM-DD. */
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** [day, month, year] from the formats Excel writes in India, or null. */
+function dateParts(raw: string): [number, number, number] | null {
+  let match = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(raw);
+  if (match) return [Number(match[3]), Number(match[2]), Number(match[1])];
+  // Day first, as everywhere in India: 20-11-2026, 20/11/26, 20.11.2026.
+  match = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/.exec(raw);
+  if (match) return [Number(match[1]), Number(match[2]), Number(match[3])];
+  // Month names: 20-Nov-2026, 20 November 26, Nov 20, 2026.
+  match = /^(\d{1,2})[-\s/.]+([a-z]{3,9})\.?[-\s/.,]+(\d{2}|\d{4})$/i.exec(raw);
+  const named = match ? null : /^([a-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/i.exec(raw);
+  const [day, name, year] = match ? [match[1], match[2], match[3]] : named ? [named[2], named[1], named[3]] : [];
+  const month = name ? MONTHS.indexOf(name.slice(0, 3).toLowerCase()) + 1 : 0;
+  return month ? [Number(day), month, Number(year)] : null;
+}
+
+/** A calendar date in any format Excel writes in India. Sent as YYYY-MM-DD. */
 export function date(raw: string): ParseResult {
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
-  const dmy = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(raw);
-  const [y, m, d] = iso ? [iso[1], iso[2], iso[3]] : dmy ? [dmy[3], dmy[2], dmy[1]] : [];
-  if (y) {
-    const value = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-    if (value.getUTCMonth() === Number(m) - 1 && value.getUTCDate() === Number(d))
+  const parts = dateParts(raw);
+  if (parts) {
+    const [d, m, y] = parts;
+    const year = y < 100 ? 2000 + y : y;
+    const value = new Date(Date.UTC(year, m - 1, d));
+    if (value.getUTCFullYear() === year && value.getUTCMonth() === m - 1 && value.getUTCDate() === d)
       return { value: value.toISOString().slice(0, 10) };
   }
-  return { error: "Not a valid date. Use YYYY-MM-DD, e.g. 2026-11-20." };
+  return { error: "Not a valid date. Use YYYY-MM-DD (2026-11-20) or DD-MM-YYYY (20-11-2026)." };
 }
 
 /** 24-hour HH:MM (seconds ignored) or 12-hour "4:30 PM". Sent as HH:MM. */
@@ -158,6 +178,9 @@ export const EXPORT_PAGE_SIZE = 100; // the backend's maximum page_size
 const EXPORT_CONCURRENCY = 4;
 const MAX_EXPORT_PAGES = 1000;
 
+/** An export too big to do in one go; the message tells the admin what to do. */
+export class ExportTooLargeError extends Error {}
+
 interface Page<T> {
   items: T[];
   pagination?: { total_pages: number };
@@ -187,7 +210,11 @@ export async function fetchAllPages<T>(
   signal?: AbortSignal
 ): Promise<T[]> {
   const first = await withRetry(() => fetchPage(1, EXPORT_PAGE_SIZE), signal);
-  const total = Math.min(Math.max(1, first.pagination?.total_pages ?? 1), MAX_EXPORT_PAGES);
+  const total = Math.max(1, first.pagination?.total_pages ?? 1);
+  if (total > MAX_EXPORT_PAGES)
+    throw new ExportTooLargeError(
+      `More than ${(MAX_EXPORT_PAGES * EXPORT_PAGE_SIZE).toLocaleString("en-IN")} records match. Narrow the filters and export in parts.`
+    );
   const pages: T[][] = [first.items ?? []];
   let next = 2;
   let done = 1;
@@ -232,10 +259,19 @@ export function buildRows<T>(columns: CsvColumn<T>[], records: ImportRecord[]): 
   const fields = columns.filter((c) => c.field);
   const idColumn = fields.find((c) => c.field === "id");
   const seen = new Map<string, Map<string, number>>();
+  const copies = new Map<string, number>();
   const items: ImportItem[] = [];
   const issues: RowIssue[] = [];
 
   for (const record of records) {
+    // A row pasted twice would add the same record twice (site visits have no unique column).
+    const signature = fields.map((c) => (record.cells[c.header] ?? "").toLowerCase()).join("\u0001");
+    const original = copies.get(signature);
+    if (original !== undefined) {
+      issues.push({ row: record.row, message: `This row is an exact copy of row ${original}. Delete one of them.` });
+      continue;
+    }
+    copies.set(signature, record.row);
     const adding = !idColumn || !record.cells[idColumn.header];
     const item: ImportItem = { row: record.row };
     let valid = true;
@@ -272,6 +308,13 @@ export function buildRows<T>(columns: CsvColumn<T>[], records: ImportRecord[]): 
   return { items, issues };
 }
 
+const HEADER_SEARCH_ROWS = 10;
+
+/** Trimmed, without the invisible characters copy-paste brings along (zero-width spaces, BOMs). */
+function cleanCell(cell: string) {
+  return cell.replace(/[​-‍⁠﻿­]/g, "").trim();
+}
+
 export interface ReadImport extends BuiltImport {
   /** Headers the import doesn't know, so a typo in a header isn't silently ignored. */
   ignored: string[];
@@ -286,15 +329,21 @@ export function readImportFile<T>(content: string, section: CsvSection<T>): Read
     return fail(err instanceof Error ? err.message : "The file could not be read.");
   }
 
-  const isBlank = (row: string[]) => row.every((cell) => !cell.trim());
-  const headerIndex = rows.findIndex((row) => !isBlank(row));
-  if (headerIndex < 0) return fail("The file is empty.");
+  rows = rows.map((row) => row.map(cleanCell));
+  const isBlank = (row: string[]) => row.every((cell) => !cell);
+  const firstFilled = rows.findIndex((row) => !isBlank(row));
+  if (firstFilled < 0) return fail("The file is empty.");
 
   const byName = new Map<string, CsvColumn<T>>();
   for (const column of section.columns) {
     byName.set(squash(column.header), column);
     if (column.field) byName.set(squash(column.field), column);
   }
+  // The header is the first row naming a known column, so a title row above it is fine.
+  const knownAt = rows
+    .slice(firstFilled, firstFilled + HEADER_SEARCH_ROWS)
+    .findIndex((row) => row.some((cell) => cell && byName.has(squash(cell))));
+  const headerIndex = knownAt < 0 ? firstFilled : firstFilled + knownAt;
   const positions: { index: number; column: CsvColumn<T> }[] = [];
   const ignored: string[] = [];
   const issues: RowIssue[] = [];
@@ -325,15 +374,23 @@ export function readImportFile<T>(content: string, section: CsvSection<T>): Read
     const cells: Record<string, string> = Object.fromEntries(
       section.columns.filter((c) => c.field).map((c) => [c.header, ""])
     );
-    for (const { index, column } of positions) cells[column.header] = unguardCell((rows[i][index] ?? "").trim());
+    for (const { index, column } of positions) cells[column.header] = unguardCell(rows[i][index] ?? "");
     records.push({ row: i + 1, cells });
   }
   if (records.length === 0) return { ...fail("There are no rows under the header row."), ignored };
   if (records.length > MAX_IMPORT_ROWS)
     return { ...fail(`The file has ${records.length} rows. Import at most ${MAX_IMPORT_ROWS} at a time.`), ignored };
 
+  // The sample's example rows, left in by mistake, would be imported as real records.
+  const fieldColumns = section.columns.filter((c) => c.field);
+  const signature = (cell: (c: CsvColumn<T>) => string) => fieldColumns.map(cell).join("\u0001");
+  const examples = new Set(section.sample.map((s) => signature((c) => cleanCell(String(c.value(s) ?? "")))));
+  const exampleIssues: RowIssue[] = records
+    .filter((r) => examples.has(signature((c) => r.cells[c.header])))
+    .map((r) => ({ row: r.row, message: "This is the example row from the sample file. Delete it, then import." }));
+
   const built = section.import?.build ? section.import.build(records) : buildRows(section.columns, records);
-  return { ...built, ignored };
+  return { items: built.items, issues: [...exampleIssues, ...built.issues], ignored };
 }
 
 const NOT_LIVE =
@@ -367,6 +424,9 @@ export function importErrorIssues<T>(err: unknown, items: ImportItem[], section:
     });
   }
   if (err.status === 404 || err.status === 405) return one(NOT_LIVE);
+  if (err.status === 403) return one(`Your account isn't allowed to import ${section.noun}. Ask a super admin.`);
+  if (err.status === 409 && err.code === "idempotency_conflict")
+    return one("This import was already sent with different content. Choose the file again and import it.");
   if (err.status === 413) return one(`The file is too large. Import at most ${MAX_IMPORT_ROWS} rows at a time.`);
   if (err.status === 429) return one("Too many imports in a short time. Wait a minute and try again.");
   if (err.status >= 500) return one("The server hit an error and nothing was imported. Please try again.");

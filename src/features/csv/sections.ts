@@ -42,6 +42,18 @@ import {
 const label = (labels: Record<string, string>, value: string | null | undefined) =>
   value ? (labels[value] ?? titleCase(value)) : "";
 
+/**
+ * A timestamp as "2026-11-01 16:00" in the admin's own time zone (IST for the team):
+ * Excel reads this as a date-time, while ISO "2026-11-01T10:30:00Z" stays text and is in UTC.
+ */
+export function stamp(value: string | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 const PROJECTS: Record<string, string> = {
   "suraksha-enclave": "Suraksha Enclave",
   "ops-divine-greens": "Ops Divine Greens",
@@ -83,8 +95,8 @@ export const customersCsv: CsvSection<ApiCustomer> = {
     { header: "Phone", value: (c) => c.phone, field: "phone", required: true, parse: phone },
     { header: "Source", value: (c) => label(CUSTOMER_SOURCES, c.source) },
     { header: "Status", value: (c) => titleCase(c.status) },
-    { header: "Created At", value: (c) => c.created_at },
-    { header: "Last Activity", value: (c) => c.last_activity_at },
+    { header: "Created At", value: (c) => stamp(c.created_at) },
+    { header: "Last Activity", value: (c) => stamp(c.last_activity_at) },
   ],
   sample: [
     {
@@ -114,8 +126,8 @@ export const brokersCsv: CsvSection<ApiBroker> = {
     { header: "Email", value: (b) => b.email, field: "email", required: true, unique: true, parse: email },
     { header: "Phone", value: (b) => b.phone, field: "phone", required: true, parse: phone },
     { header: "Project", value: (b) => label(PROJECTS, b.project), field: "project", required: true, parse: oneOf(PROJECTS) },
-    { header: "Created At", value: (b) => b.created_at },
-    { header: "Last Activity", value: (b) => b.last_activity_at },
+    { header: "Created At", value: (b) => stamp(b.created_at) },
+    { header: "Last Activity", value: (b) => stamp(b.last_activity_at) },
   ],
   sample: [
     {
@@ -153,7 +165,7 @@ export const visitsCsv: CsvSection<ApiVisit> = {
     { header: "Visit Time", value: (v) => v.visit_time, field: "visit_time", parse: time },
     { header: "Status", value: (v) => label(VISIT_STATUSES, v.status), field: "status", parse: oneOf(VISIT_STATUSES) },
     { header: "Notes", value: (v) => v.notes, field: "notes", parse: text(2000) },
-    { header: "Created At", value: (v) => v.created_at },
+    { header: "Created At", value: (v) => stamp(v.created_at) },
   ],
   sample: [
     {
@@ -194,8 +206,8 @@ export const bookingsCsv: CsvSection<ApiBookingListItem> = {
     { header: "Amount", value: (b) => b.amount },
     { header: "KYC Status", value: (b) => titleCase(b.kyc_status) },
     { header: "Booking Status", value: (b) => titleCase(b.status) },
-    { header: "Created At", value: (b) => b.created_at },
-    { header: "Last Activity", value: (b) => b.last_activity_at },
+    { header: "Created At", value: (b) => stamp(b.created_at) },
+    { header: "Last Activity", value: (b) => stamp(b.last_activity_at) },
   ],
   sample: [
     {
@@ -229,8 +241,8 @@ export const refundsCsv: CsvSection<ApiRefundListItem> = {
     { header: "Currency", value: (r) => r.currency },
     { header: "Method", value: (r) => label(PAYMENT_METHODS, r.method) },
     { header: "Status", value: (r) => titleCase(r.status) },
-    { header: "Initiated", value: (r) => r.refund_initiated_date },
-    { header: "Completed", value: (r) => r.refund_completed_date },
+    { header: "Initiated", value: (r) => stamp(r.refund_initiated_date) },
+    { header: "Completed", value: (r) => stamp(r.refund_completed_date) },
   ],
   sample: [
     {
@@ -265,7 +277,7 @@ export const revenueCsv: CsvSection<ApiRevenueTransaction> = {
     { header: "Currency", value: (t) => t.currency },
     { header: "Method", value: (t) => label(PAYMENT_METHODS, t.method) },
     { header: "Status", value: (t) => titleCase(t.status) },
-    { header: "Date", value: (t) => t.created_at },
+    { header: "Date", value: (t) => stamp(t.created_at) },
   ],
   sample: [
     {
@@ -318,7 +330,7 @@ const CHARGES = ["PLC", "IFMS", "CAM"];
 /** "PLC + IFMS", "ifms+plc", "All (PLC + IFMS + CAM)" -> a charge head; null if not one. */
 export function parseChargeHead(raw: string): PlanChargeHead | "" | null {
   const value = raw.toUpperCase().replace(/\s+/g, "");
-  if (!value) return "";
+  if (!value || ["-", "NONE", "NA", "N/A", "NIL", "NO"].includes(value)) return "";
   if (value.startsWith("ALL")) return "ALL";
   const parts = value.split(/[+,&/]|AND/).filter(Boolean);
   if (parts.length === 0 || parts.some((p) => !CHARGES.includes(p)) || new Set(parts).size !== parts.length) return null;
@@ -375,19 +387,29 @@ function buildPlans(records: ImportRecord[], existing: ApiPaymentPlan[]): BuiltI
     const planIssues: RowIssue[] = [];
     const add = (row: number, column: string | undefined, message: string) => planIssues.push({ row, column, message });
 
-    for (const record of group.slice(1))
-      for (const column of PLAN_LEVEL)
-        if (record.cells[column] && record.cells[column] !== first.cells[column])
-          add(record.row, column, `Differs from row ${first.row} of plan ${code}. Repeat the same value, or leave it blank.`);
+    // Plan details may be on any row of the plan (usually the first); the rest repeat them or leave them blank.
+    const sourceRow = new Map<string, ImportRecord>();
+    for (const column of PLAN_LEVEL) {
+      const source = group.find((r) => r.cells[column]);
+      if (!source) continue;
+      sourceRow.set(column, source);
+      for (const record of group)
+        if (record.cells[column] && record.cells[column] !== source.cells[column])
+          add(record.row, column, `Differs from row ${source.row} of plan ${code}. Repeat the same value, or leave it blank.`);
+    }
+    const planValue = (column: string) => sourceRow.get(column)?.cells[column] ?? "";
+    const rowOf = (column: string | undefined) => (column && sourceRow.get(column)?.row) || first.row;
+
     if (group.length > MAX_INSTALMENTS) add(first.row, undefined, `Plan ${code} has ${group.length} instalments; the maximum is ${MAX_INSTALMENTS}.`);
-    if (first.cells[H.description].length > DESCRIPTION_MAX) add(first.row, H.description, `Max ${DESCRIPTION_MAX} characters.`);
+    if (planValue(H.description).length > DESCRIPTION_MAX)
+      add(rowOf(H.description), H.description, `Max ${DESCRIPTION_MAX} characters.`);
 
     const values: PlanFormValues = {
       code,
-      shortCode: first.cells[H.shortCode],
-      name: first.cells[H.name],
-      description: first.cells[H.description],
-      projectId: first.cells[H.projectId],
+      shortCode: planValue(H.shortCode),
+      name: planValue(H.name),
+      description: planValue(H.description),
+      projectId: planValue(H.projectId),
       instalments: group.map((record) => {
         const chargeHead = parseChargeHead(record.cells[H.charges]);
         if (chargeHead === null) add(record.row, H.charges, "Use PLC, IFMS, CAM, two of them joined with + (e.g. PLC + IFMS), or All.");
@@ -407,7 +429,9 @@ function buildPlans(records: ImportRecord[], existing: ApiPaymentPlan[]): BuiltI
       const match = /^(\w+)-(\d+)$/.exec(key);
       const column = PLAN_ERROR_COLUMNS[match ? match[1] : key];
       if (match) add(Number(match[2]), column, message);
-      else add(first.row, column, column ? message : `Plan ${code}: ${message}`);
+      else if (key === "code" && existing.some((p) => p.code.toLowerCase() === code.toLowerCase()))
+        add(first.row, column, "A plan with this code already exists. Import only adds new plans: use a new Plan Code.");
+      else add(rowOf(column), column, column ? message : `Plan ${code}: ${message}`);
     }
 
     if (planIssues.length > 0) {

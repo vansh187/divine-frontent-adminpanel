@@ -8,6 +8,7 @@ import { csvBlob } from "../../lib/csv";
 import { saveBlob } from "../../lib/download";
 import { createIdempotencyKey } from "../../lib/idempotency";
 import {
+  ExportTooLargeError,
   MAX_IMPORT_BYTES,
   importErrorIssues,
   readImportFile,
@@ -53,8 +54,12 @@ function today() {
 }
 
 function exportErrorMessage(err: unknown) {
-  if (err instanceof ApiError) return `Export failed: ${err.message}`;
-  return "Export failed: could not reach the server. Check your connection and try again.";
+  if (err instanceof ExportTooLargeError) return err.message;
+  if (!(err instanceof ApiError)) return "Export failed: could not reach the server. Check your connection and try again.";
+  if (err.status >= 500) return "Export failed: the server hit an error. Please try again.";
+  if (err.status === 403) return "Export failed: your account isn't allowed to view these records.";
+  if (err.status === 422) return "Export failed: the server doesn't accept the current filters. Change them and try again.";
+  return `Export failed: ${err.message}`;
 }
 
 function downloadSample<T>(section: CsvSection<T>) {
@@ -87,7 +92,7 @@ function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsPr
       );
       if (run.signal.aborted) return;
       const rows = uniqueRows(section, loaded);
-      if (rows.length === 0) setError(`No ${section.noun} match the current filters, so there is nothing to export.`);
+      if (rows.length === 0) setError(`There are no ${section.noun} to export. Check the search and filters.`);
       else saveBlob(csvBlob(sectionCsv(section, rows)), `${section.file}-${today()}.csv`);
     } catch (err) {
       if (!run.signal.aborted) setError(exportErrorMessage(err));
@@ -148,18 +153,32 @@ function CsvToolbar<T>({ section, loadRows, onImported, disabled }: CsvActionsPr
 function fileProblem(file: File): string | null {
   if (/\.(xlsx|xlsm|xls|ods|numbers)$/i.test(file.name))
     return 'This is a spreadsheet file, not CSV. In Excel choose File > Save As > "CSV UTF-8 (Comma delimited)", then choose that file.';
-  if (!/\.(csv|txt)$/i.test(file.name)) return "Choose a .csv file.";
+  const looksCsv = /\.(csv|txt)$/i.test(file.name) || (!/\.\w{1,5}$/.test(file.name) && /csv|text\/plain/.test(file.type));
+  if (!looksCsv) return "Choose a .csv file.";
   if (file.size === 0) return "The file is empty.";
   if (file.size > MAX_IMPORT_BYTES) return "The file is larger than 5 MB. Split it into smaller files.";
   return null;
 }
 
+/** The file's text, whichever encoding Excel used to save it. */
 async function readText(file: File) {
-  const bytes = await file.arrayBuffer();
-  const utf8 = new TextDecoder("utf-8").decode(bytes);
-  // Excel's plain "CSV (Comma delimited)" is saved as Windows-1252, not UTF-8.
-  return utf8.includes("�") ? new TextDecoder("windows-1252").decode(bytes) : utf8;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  // Excel's "Unicode Text" is UTF-16 with a byte-order mark.
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    // Not valid UTF-8: Excel's plain "CSV (Comma delimited)" is saved as Windows-1252.
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
 }
+
+/**
+ * What each section last imported successfully in this browser tab. Choosing the same file
+ * again gets a fresh key, so it would add its new rows a second time: the dialog warns first.
+ */
+const lastImported = new Map<string, { content: string; at: Date }>();
 
 /** Network failures and server errors may succeed on a retry of the same request. */
 function canRetry(err: unknown) {
@@ -210,7 +229,7 @@ function ImportDialog<T>({
   const [fileName, setFileName] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   // The key stays with the parsed file, so a retry after a lost response never imports it twice.
-  const [prepared, setPrepared] = useState<{ items: ImportItem[]; key: string } | null>(null);
+  const [prepared, setPrepared] = useState<{ items: ImportItem[]; key: string; content: string } | null>(null);
   const [issues, setIssues] = useState<RowIssue[]>([]);
   const [ignored, setIgnored] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -244,7 +263,7 @@ function ImportDialog<T>({
       if (!mounted.current) return;
       setIgnored(read.ignored);
       if (read.issues.length > 0) setIssues(read.issues);
-      else setPrepared({ items: read.items, key: createIdempotencyKey() });
+      else setPrepared({ items: read.items, key: createIdempotencyKey(), content: JSON.stringify(read.items) });
     } catch {
       if (mounted.current) setIssues([{ row: null, message: "The file could not be read. Save it again as CSV and retry." }]);
     } finally {
@@ -258,6 +277,7 @@ function ImportDialog<T>({
     setIssues([]);
     try {
       const res = await importRows(accessToken, section.import.entity, prepared.items, prepared.key);
+      lastImported.set(section.import.entity, { content: prepared.content, at: new Date() });
       if (!mounted.current) return;
       setResult({ created: res?.created ?? 0, updated: res?.updated ?? 0 });
       setPrepared(null);
@@ -271,6 +291,8 @@ function ImportDialog<T>({
     }
   }
 
+  const previous = prepared && section.import ? lastImported.get(section.import.entity) : undefined;
+  const alreadyImported = !!previous && previous.content === prepared?.content;
   const count = prepared?.items.length ?? 0;
   const counted = `${count} ${count === 1 ? section.noun.replace(/s$/, "") : section.noun}`;
 
@@ -307,7 +329,7 @@ function ImportDialog<T>({
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.txt,text/csv,text/plain,application/vnd.ms-excel"
             className="sr-only"
             aria-label="CSV file"
             onChange={(e) => {
@@ -320,7 +342,7 @@ function ImportDialog<T>({
           <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={busy}>
             {fileName ? "Choose another file" : "Choose CSV file"}
           </Button>
-          {fileName && <span className="min-w-0 truncate text-xs text-text">{fileName}</span>}
+          {fileName && <span className="min-w-0 max-w-full flex-1 truncate text-xs text-text" title={fileName}>{fileName}</span>}
         </div>
 
         {reading && <p className="text-xs">Checking the file…</p>}
@@ -328,6 +350,13 @@ function ImportDialog<T>({
         {prepared && !saving && issues.length === 0 && (
           <p className="rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
             {counted} checked and ready to import.
+          </p>
+        )}
+        {alreadyImported && !saving && (
+          <p className="rounded-xl border border-warning/30 bg-warning-bg p-3 text-sm text-warning">
+            You already imported this exact file at{" "}
+            {previous.at.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}. Importing it again adds
+            its new rows a second time. Only continue if that is what you want.
           </p>
         )}
         {ignored.length > 0 && !result && (

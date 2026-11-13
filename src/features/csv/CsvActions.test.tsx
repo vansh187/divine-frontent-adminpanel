@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type ApiCustomer } from "../../lib/api";
 import { CsvActions } from "./CsvActions";
-import type { CsvSection } from "./csvModel";
+import { ExportTooLargeError, type CsvSection } from "./csvModel";
 import { bookingsCsv, customersCsv } from "./sections";
 
 const importRows = vi.fn();
@@ -57,10 +57,29 @@ describe("CsvActions export and sample", () => {
     const loadRows = vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new ApiError(500, "internal_error"));
     render(<CsvActions section={customersCsv} loadRows={loadRows} />);
     await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("No customers match the current filters");
+    expect(await screen.findByRole("alert")).toHaveTextContent("There are no customers to export.");
     await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Export failed: internal_error");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Export failed: the server hit an error.");
     expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("says when an export is too big instead of saving part of it", async () => {
+    const loadRows = vi.fn().mockRejectedValue(new ExportTooLargeError("More than 1,00,000 records match."));
+    render(<CsvActions section={customersCsv} loadRows={loadRows} />);
+    await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("More than 1,00,000 records match.");
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("ignores a second click while an export is running", async () => {
+    let finish: (rows: ApiCustomer[]) => void = () => {};
+    const loadRows = vi.fn(() => new Promise<ApiCustomer[]>((resolve) => (finish = resolve)));
+    render(<CsvActions section={customersCsv} loadRows={loadRows} />);
+    await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(screen.getByRole("button", { name: "Exporting…" })).toBeDisabled();
+    finish([customer]);
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
+    expect(loadRows).toHaveBeenCalledTimes(1);
   });
 
   it("export-only sections have no Import button but still offer a sample", async () => {
@@ -151,5 +170,47 @@ describe("CsvActions import", () => {
     await u.click(await screen.findByRole("button", { name: "Import 1 customer" }));
     await screen.findByRole("status");
     expect(importRows.mock.calls[0][2][0].full_name).toBe("José");
+  });
+
+  it("keeps UTF-8 text that happens to contain the replacement character", async () => {
+    importRows.mockResolvedValue({ created: 1, updated: 0 });
+    const u = await openWith(csvFile("Full Name,Email,Phone\nRavi � Kumar,r1@example.com,1\n"));
+    await u.click(await screen.findByRole("button", { name: "Import 1 customer" }));
+    await screen.findByRole("status");
+    expect(importRows.mock.calls[0][2][0].full_name).toBe("Ravi � Kumar");
+  });
+
+  it("reads Excel's UTF-16 'Unicode Text' (tab-separated)", async () => {
+    importRows.mockResolvedValue({ created: 1, updated: 0 });
+    const content = "Full Name\tEmail\tPhone\r\nअर्जुन\tarjun16@example.com\t1\r\n";
+    const bytes = new Uint8Array(2 + content.length * 2);
+    bytes.set([0xff, 0xfe]);
+    for (let i = 0; i < content.length; i++) {
+      bytes[2 + i * 2] = content.charCodeAt(i) & 0xff;
+      bytes[3 + i * 2] = content.charCodeAt(i) >> 8;
+    }
+    const u = await openWith(new File([bytes], "customers.txt"));
+    await u.click(await screen.findByRole("button", { name: "Import 1 customer" }));
+    await screen.findByRole("status");
+    expect(importRows.mock.calls[0][2][0]).toMatchObject({ full_name: "अर्जुन", email: "arjun16@example.com" });
+  });
+
+  it("accepts a file without an extension when the browser says it is CSV", async () => {
+    await openWith(new File(["Full Name,Email,Phone\nRavi,ravi.ext@example.com,1\n"], "download", { type: "text/csv" }));
+    expect(await screen.findByText("1 customer checked and ready to import.")).toBeInTheDocument();
+  });
+
+  it("warns before importing the exact same file twice", async () => {
+    importRows.mockResolvedValue({ created: 1, updated: 0 });
+    const content = "Full Name,Email,Phone\nTwice,twice@example.com,1\n";
+    const u = await openWith(csvFile(content));
+    await u.click(await screen.findByRole("button", { name: "Import 1 customer" }));
+    await screen.findByRole("status");
+    expect(screen.queryByText(/already imported this exact file/)).not.toBeInTheDocument();
+
+    await u.upload(screen.getByLabelText("CSV file"), csvFile(content));
+    expect(await screen.findByText(/already imported this exact file/)).toBeInTheDocument();
+    // Still allowed: the admin may really mean it.
+    expect(screen.getByRole("button", { name: "Import 1 customer" })).toBeEnabled();
   });
 });

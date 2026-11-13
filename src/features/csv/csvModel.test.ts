@@ -56,12 +56,15 @@ describe("customers", () => {
     ]);
   });
 
-  it("sample has only the import columns, and imports as a new customer", () => {
+  it("sample has only the import columns; its example row is refused, an edited one is added", () => {
     const sample = sampleCsv(customersCsv);
     expect(parseCsv(sample)[0]).toEqual(["ID", "Full Name", "Email", "Phone"]);
-    const read = readImportFile(sample, customersCsv);
-    expect(read.issues).toEqual([]);
-    expect(read.items[0]).not.toHaveProperty("id");
+    expect(readImportFile(sample, customersCsv).issues).toEqual([
+      { row: 2, message: "This is the example row from the sample file. Delete it, then import." },
+    ]);
+    const edited = readImportFile(sample.replace("Arjun Mehta", "Ravi Kumar"), customersCsv);
+    expect(edited.issues).toEqual([]);
+    expect(edited.items[0]).not.toHaveProperty("id");
   });
 
   it("matches headers loosely and reports each bad cell by spreadsheet row", () => {
@@ -161,7 +164,7 @@ describe("payment plans", () => {
     expect(messages).toEqual(
       expect.arrayContaining([
         "3|Short Code|Differs from row 2 of plan PP1/FPP. Repeat the same value, or leave it blank.",
-        "2|Plan Code|A plan with this code already exists.",
+        "2|Plan Code|A plan with this code already exists. Import only adds new plans: use a new Plan Code.",
         "3|Days Later|Whole days, 0 to 3650.",
       ])
     );
@@ -181,9 +184,11 @@ describe("payment plans", () => {
     };
     const rows = parseCsv(sectionCsv(section, planCsvRows([plan], [plan, { ...plan, version: 2, plots_count: 3 }])));
     expect(rows[1]).toEqual(["PP1/FPP", "PP1", "Flexi", "", "", "1", "Yes", "5", "Booking", "100", "Plinth", "5", "ALL", "5 days after Plinth"]);
-    const sample = readImportFile(sampleCsv(section), section);
-    expect(sample.issues).toEqual([]);
-    expect(sample.items).toHaveLength(1);
+    // The sample's own rows are refused as examples; with a new code they form one valid plan.
+    expect(readImportFile(sampleCsv(section), section).issues).toHaveLength(3);
+    const edited = readImportFile(sampleCsv(section).replaceAll("PP5/CLP/10-40-50", "PP7/NEW"), section);
+    expect(edited.issues).toEqual([]);
+    expect(edited.items).toHaveLength(1);
   });
 
   it("reads charge heads written any reasonable way", () => {

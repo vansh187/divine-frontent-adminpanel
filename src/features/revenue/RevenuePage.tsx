@@ -16,6 +16,9 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatCompactCurrency, formatCurrency, formatDate } from "../../lib/format";
+import { CsvActions } from "../csv/CsvActions";
+import { pagedRows } from "../csv/csvModel";
+import { revenueCsv } from "../csv/sections";
 
 const PAGE_SIZE = 20;
 const TREND_MONTHS = 6;
@@ -177,7 +180,18 @@ export function RevenuePage() {
 
   return (
     <div>
-      <PageHeader title="Revenue" subtitle="Revenue summary and transaction drill-down" />
+      <PageHeader
+        title="Revenue"
+        subtitle="Revenue summary and transaction drill-down"
+        actions={
+          <CsvActions
+            section={revenueCsv}
+            loadRows={pagedRows((token, p, size) =>
+              listRevenueTransactions(token, { page: p, page_size: size, search: search || undefined })
+            )}
+          />
+        }
+      />
 
       {summaryError && (
         <div className="mb-4 rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">

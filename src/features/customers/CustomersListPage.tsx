@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Avatar } from "../../components/ui/Avatar";
 import { Button } from "../../components/ui/Button";
@@ -18,6 +18,9 @@ import {
   type CustomerStatus,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { CsvActions } from "../csv/CsvActions";
+import { pagedRows } from "../csv/csvModel";
+import { customersCsv } from "../csv/sections";
 import { validateEmail, validateFullName } from "../../lib/validation";
 
 const PAGE_SIZE = 20;
@@ -48,6 +51,16 @@ export function CustomersListPage() {
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("ALL");
   const [status, setStatus] = useState("ALL");
+  const [reloadKey, setReloadKey] = useState(0);
+  // Shared by the list and the CSV export, so an export holds exactly what the filters show.
+  const filters = useMemo(
+    () => ({
+      search: search || undefined,
+      source: source === "ALL" ? undefined : (source as "WEBSITE" | "BROKER_CHANNEL"),
+      status: status === "ALL" ? undefined : (status as CustomerStatus),
+    }),
+    [search, source, status]
+  );
 
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
@@ -71,13 +84,7 @@ export function CustomersListPage() {
     setLoading(true);
     setLoadError(null);
 
-    listCustomers(accessToken, {
-      page,
-      page_size: PAGE_SIZE,
-      search: search || undefined,
-      source: source === "ALL" ? undefined : (source as "WEBSITE" | "BROKER_CHANNEL"),
-      status: status === "ALL" ? undefined : (status as CustomerStatus),
-    })
+    listCustomers(accessToken, { ...filters, page, page_size: PAGE_SIZE })
       .then((res) => {
         if (cancelled) return;
         setItems(res.items);
@@ -95,7 +102,7 @@ export function CustomersListPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, page, search, source, status]);
+  }, [accessToken, page, filters, reloadKey]);
 
   function resetForm() {
     setName("");
@@ -149,7 +156,16 @@ export function CustomersListPage() {
       <PageHeader
         title="Customers &amp; Leads"
         subtitle="All customer and channel partner-sourced leads"
-        actions={<Button onClick={() => setAddOpen(true)}>Add Customer</Button>}
+        actions={
+          <>
+            <CsvActions
+              section={customersCsv}
+              loadRows={pagedRows((token, p, size) => listCustomers(token, { ...filters, page: p, page_size: size }))}
+              onImported={() => setReloadKey((k) => k + 1)}
+            />
+            <Button onClick={() => setAddOpen(true)}>Add Customer</Button>
+          </>
+        }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

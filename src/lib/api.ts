@@ -17,6 +17,8 @@ export class ApiError extends Error {
   /** Raw `detail` from a FastAPI 422 validation body, when the error is shaped that way. */
   validationErrors?: FastApiValidationError[];
   requestId: string | null;
+  /** The response's raw `detail`, for errors that carry more than a code and message. */
+  detail?: unknown;
 
   constructor(
     status: number,
@@ -67,7 +69,7 @@ async function parseResponse<T>(res: Response): Promise<T> {
       (typeof detail === "string" ? detail : detail?.message) ??
       body?.message ??
       (textBody.trim() || `Request failed with status ${res.status}`);
-    throw new ApiError(
+    const error = new ApiError(
       res.status,
       message,
       code,
@@ -75,6 +77,8 @@ async function parseResponse<T>(res: Response): Promise<T> {
       res.headers.get("Retry-After"),
       res.headers.get("X-Request-ID")
     );
+    error.detail = detail;
+    throw error;
   }
 
   return body as T;
@@ -1069,5 +1073,33 @@ export function createPaymentPlan(accessToken: string, payload: PaymentPlanCreat
   return authRequest<ApiPaymentPlan>("/admin/payment-plans", accessToken, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// CSV import (admin). Needs the backend endpoint in docs/csv-import-backend.md.
+// ---------------------------------------------------------------------------
+
+export type ImportEntity = "customers" | "brokers" | "visits" | "payment-plans";
+
+export interface ImportResult {
+  created: number;
+  updated: number;
+}
+
+/**
+ * Saves every row in one all-or-nothing request: if any row is refused, nothing is saved
+ * and the 422 `detail.errors` lists each problem by `row` (the spreadsheet row number).
+ */
+export function importRows(
+  accessToken: string,
+  entity: ImportEntity,
+  rows: Record<string, unknown>[],
+  idempotencyKey: string
+): Promise<ImportResult> {
+  return authRequest<ImportResult>(`/admin/imports/${entity}`, accessToken, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ rows }),
   });
 }

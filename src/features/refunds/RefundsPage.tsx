@@ -20,6 +20,9 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
+import { CsvActions } from "../csv/CsvActions";
+import { pagedRows } from "../csv/csvModel";
+import { refundsCsv } from "../csv/sections";
 
 const PAGE_SIZE = 20;
 
@@ -224,7 +227,24 @@ export function RefundsPage() {
 
   return (
     <div>
-      <PageHeader title="Refunds" subtitle="Cancellation and refund workflow tracking" />
+      <PageHeader
+        title="Refunds"
+        subtitle="Cancellation and refund workflow tracking"
+        actions={
+          <CsvActions
+            section={refundsCsv}
+            loadRows={pagedRows((token, p, size) =>
+              listRefunds(token, {
+                page: p,
+                page_size: size,
+                search: search || undefined,
+                status: status === "ALL" ? undefined : status,
+                method: method === "ALL" ? undefined : method,
+              })
+            )}
+          />
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput

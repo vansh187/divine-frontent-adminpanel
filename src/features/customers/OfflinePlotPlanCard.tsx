@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { DocumentPreviewModal, type DocumentPreview } from "../../components/DocumentPreviewModal";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -101,6 +102,7 @@ export function OfflinePlotPlanCard({
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<DocumentPreview | null>(null);
 
   const place = [plot.project_name, plot.unit_number && `Plot ${plot.unit_number}`].filter(Boolean).join(" · ");
   const title = `Payment Plan${place ? ` — ${place}` : ""}`;
@@ -147,12 +149,27 @@ export function OfflinePlotPlanCard({
     }
   }
 
+  const letterFilename = `Demand-Letter-${plot.unit_number ?? plot.document_id}.pdf`;
+
+  async function viewLetter() {
+    setDownloadError(null);
+    setPreview({ title: "Demand Letter", blob: null, filename: letterFilename, error: null });
+    try {
+      const { blob, filename } = await downloadPlotDemandLetter(accessToken, customerId, plot.document_id);
+      // The admin may have closed the preview while it loaded.
+      setPreview((p) => p && { ...p, blob, filename: filename ?? letterFilename });
+    } catch (err) {
+      const error = errorText(err, "The demand letter could not be opened. Please try again.");
+      setPreview((p) => p && { ...p, error });
+    }
+  }
+
   async function downloadLetter() {
     setDownloading(true);
     setDownloadError(null);
     try {
       const { blob, filename } = await downloadPlotDemandLetter(accessToken, customerId, plot.document_id);
-      saveBlob(blob, filename ?? `Demand-Letter-${plot.unit_number ?? plot.document_id}.pdf`);
+      saveBlob(blob, filename ?? letterFilename);
     } catch (err) {
       setDownloadError(errorText(err, "The demand letter could not be downloaded. Please try again."));
     } finally {
@@ -292,9 +309,14 @@ export function OfflinePlotPlanCard({
 
           <div className="flex flex-wrap items-center gap-2">
             {plot.demand_letter_available && (
-              <Button size="sm" disabled={downloading} onClick={downloadLetter}>
-                {downloading ? "Preparing..." : "Download demand letter"}
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={viewLetter}>
+                  View demand letter
+                </Button>
+                <Button size="sm" disabled={downloading} onClick={downloadLetter}>
+                  {downloading ? "Preparing..." : "Download demand letter"}
+                </Button>
+              </>
             )}
             {plot.terms_editable && (
               <Button variant="outline" size="sm" onClick={startEditing}>
@@ -313,6 +335,7 @@ export function OfflinePlotPlanCard({
           )}
         </>
       )}
+      <DocumentPreviewModal preview={preview} onClose={() => setPreview(null)} />
     </Card>
   );
 }

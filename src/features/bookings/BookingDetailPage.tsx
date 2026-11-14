@@ -23,6 +23,7 @@ import { createIdempotencyKey } from "../../lib/idempotency";
 import { saveBlob } from "../../lib/download";
 import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
 import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
+import { DocumentPreviewModal, type DocumentPreview } from "../../components/DocumentPreviewModal";
 import { PaymentPlanCard } from "./PaymentPlanCard";
 
 type ModalKind = "approve" | "reject" | "cancelPlot" | null;
@@ -118,6 +119,8 @@ const BOOKING_DOCUMENTS: {
   filenamePrefix: string;
   /** Generated letters only exist once the plot is booked. */
   bookedOnly: boolean;
+  /** The admin can read it in the panel before downloading it. */
+  viewable: boolean;
 }[] = [
   {
     kind: "application",
@@ -126,6 +129,7 @@ const BOOKING_DOCUMENTS: {
     download: downloadApplicationForm,
     filenamePrefix: "Booking-Application-Form",
     bookedOnly: false,
+    viewable: false,
   },
   {
     kind: "allotment",
@@ -134,6 +138,7 @@ const BOOKING_DOCUMENTS: {
     download: downloadAllotmentLetter,
     filenamePrefix: "Allotment-Letter",
     bookedOnly: true,
+    viewable: false,
   },
   {
     kind: "demand",
@@ -142,10 +147,11 @@ const BOOKING_DOCUMENTS: {
     download: downloadDemandLetter,
     filenamePrefix: "Demand-Letter",
     bookedOnly: true,
+    viewable: true,
   },
 ];
 
-function documentErrorMessage(err: unknown, doc: (typeof BOOKING_DOCUMENTS)[number]) {
+function documentErrorMessage(err: unknown, doc: (typeof BOOKING_DOCUMENTS)[number], action: "download" | "open" = "download") {
   if (err instanceof TypeError) {
     return "Could not connect to the document service. Check your connection and try again.";
   }
@@ -162,9 +168,9 @@ function documentErrorMessage(err: unknown, doc: (typeof BOOKING_DOCUMENTS)[numb
       ? "The customer has not uploaded the booking application form yet."
       : `The ${doc.label.toLowerCase()} could not be found for this booking.`;
   }
-  if (err instanceof ApiError && err.status === 403) return "You do not have permission to download this document.";
+  if (err instanceof ApiError && err.status === 403) return `You do not have permission to ${action} this document.`;
   if (err instanceof ApiError && err.message) return err.message;
-  return `Could not download the ${doc.label.toLowerCase()}. Please try again.`;
+  return `Could not ${action} the ${doc.label.toLowerCase()}. Please try again.`;
 }
 
 function loadErrorMessage(err: unknown) {
@@ -191,6 +197,7 @@ export function BookingDetailPage() {
 
   const [downloadingDocument, setDownloadingDocument] = useState<BookingDocumentKind | null>(null);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [selectedKycFiles, setSelectedKycFiles] = useState<Record<string, File | null>>({});
   const [kycNotes, setKycNotes] = useState<Record<string, string>>({});
   const [kycUploadErrors, setKycUploadErrors] = useState<Record<string, string>>({});
@@ -204,6 +211,7 @@ export function BookingDetailPage() {
   useEffect(() => {
     setDocumentError(null);
     setDownloadingDocument(null);
+    setPreview(null);
     setSelectedKycFiles({});
     setKycNotes({});
     setKycUploadErrors({});
@@ -331,6 +339,28 @@ export function BookingDetailPage() {
       }
     } finally {
       if (requestedBookingId === id && requestedBookingId === booking?.id && requestVersion === bookingRequestVersion.current) setDownloadingDocument(null);
+    }
+  }
+
+  async function handleViewDocument(doc: (typeof BOOKING_DOCUMENTS)[number]) {
+    if (!accessToken || !booking) return;
+    const requestedBookingId = booking.id;
+    const requestVersion = bookingRequestVersion.current;
+    const current = () =>
+      requestedBookingId === id && requestedBookingId === booking?.id && requestVersion === bookingRequestVersion.current;
+    const title = doc.label;
+    const fallbackName = `${doc.filenamePrefix}-${requestedBookingId}.pdf`;
+    setDocumentError(null);
+    setPreview({ title, blob: null, filename: fallbackName, error: null });
+    try {
+      const { blob, filename } = await doc.download(accessToken, requestedBookingId);
+      if (!current()) return;
+      // Only fill the preview the admin is still looking at; they may have closed it.
+      setPreview((p) => (p?.title === title ? { title, blob, filename: filename ?? fallbackName, error: null } : p));
+    } catch (err) {
+      if (!current()) return;
+      const error = documentErrorMessage(err, doc, "open");
+      setPreview((p) => (p?.title === title ? { ...p, error } : p));
     }
   }
 
@@ -772,15 +802,38 @@ export function BookingDetailPage() {
                     <div key={doc.kind} className="rounded-xl border border-border p-3">
                       <p className="text-sm font-semibold text-text">{doc.label}</p>
                       <p className="mb-2 text-xs text-text-muted">{doc.description}</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        disabled={downloadingDocument !== null || (doc.bookedOnly && !hasApplicationForm)}
-                        onClick={() => handleDownloadDocument(doc)}
-                      >
-                        {downloadingDocument === doc.kind ? "Preparing..." : `Download ${doc.label}`}
-                      </Button>
+                      {doc.viewable ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`View ${doc.label}`}
+                            disabled={downloadingDocument !== null || (doc.bookedOnly && !hasApplicationForm)}
+                            onClick={() => handleViewDocument(doc)}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Download ${doc.label}`}
+                            disabled={downloadingDocument !== null || (doc.bookedOnly && !hasApplicationForm)}
+                            onClick={() => handleDownloadDocument(doc)}
+                          >
+                            {downloadingDocument === doc.kind ? "Preparing..." : "Download"}
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          disabled={downloadingDocument !== null || (doc.bookedOnly && !hasApplicationForm)}
+                          onClick={() => handleDownloadDocument(doc)}
+                        >
+                          {downloadingDocument === doc.kind ? "Preparing..." : `Download ${doc.label}`}
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -797,6 +850,8 @@ export function BookingDetailPage() {
           </div>
         </>
       )}
+
+      <DocumentPreviewModal preview={preview} onClose={() => setPreview(null)} />
 
       <Modal
         open={modal === "approve"}

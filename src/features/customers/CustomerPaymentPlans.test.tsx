@@ -17,13 +17,17 @@ const listBookings = vi.fn();
 const getBooking = vi.fn();
 const getCustomerDetail = vi.fn();
 const setPlotPaymentTerms = vi.fn();
+const downloadPlotDemandLetter = vi.fn();
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
   listBookings: (...args: unknown[]) => listBookings(...args),
   getBooking: (...args: unknown[]) => getBooking(...args),
   getCustomerDetail: (...args: unknown[]) => getCustomerDetail(...args),
   setPlotPaymentTerms: (...args: unknown[]) => setPlotPaymentTerms(...args),
+  downloadPlotDemandLetter: (...args: unknown[]) => downloadPlotDemandLetter(...args),
 }));
+const saveBlob = vi.fn();
+vi.mock("../../lib/download", () => ({ saveBlob: (...args: unknown[]) => saveBlob(...args) }));
 
 const CUSTOMER = "CUST-1";
 
@@ -108,6 +112,8 @@ beforeEach(() => {
   getCustomerDetail.mockReset();
   getCustomerDetail.mockResolvedValue({ plots: [] });
   setPlotPaymentTerms.mockReset();
+  downloadPlotDemandLetter.mockReset();
+  saveBlob.mockReset();
 });
 
 describe("CustomerPaymentPlans", () => {
@@ -442,6 +448,47 @@ describe("CustomerPaymentPlans - partial failures, order and names", () => {
       payment_plan: "PP1", booking_date: "2026-04-18",
       sale_price: null, plc: null, ifms: null, cam: null, amount_received: null,
     });
+  });
+
+  it("shows the demand letter before downloading it, and downloads the same file", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:letter");
+    URL.revokeObjectURL = vi.fn();
+    const letter = new Blob(["%PDF-1.4"], { type: "application/pdf" });
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({
+      plots: [offlinePlot("D8", { sale_price: 5000000, total: 5000000, terms_status: "complete", demand_letter_available: true })],
+    });
+    downloadPlotDemandLetter.mockResolvedValue({ blob: letter, filename: "DL-D8.pdf" });
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "View demand letter" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Demand Letter" }));
+    expect(await dialog.findByTitle("Demand Letter")).toHaveAttribute("src", "blob:letter");
+    expect(downloadPlotDemandLetter).toHaveBeenCalledWith("token", CUSTOMER, "DOC-D8");
+
+    await user.click(dialog.getByRole("button", { name: "Download" }));
+    expect(saveBlob).toHaveBeenCalledWith(letter, "DL-D8.pdf");
+    expect(downloadPlotDemandLetter).toHaveBeenCalledTimes(1);
+
+    await user.click(dialog.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:letter");
+  });
+
+  it("explains in the preview when the demand letter can't be opened", async () => {
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({
+      plots: [offlinePlot("D8", { sale_price: 5000000, total: 5000000, terms_status: "complete", demand_letter_available: true })],
+    });
+    downloadPlotDemandLetter.mockRejectedValue(new ApiError(409, "payment_details_pending", "payment_details_pending"));
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "View demand letter" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Demand Letter" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Enter this plot's prices first.");
+    expect(dialog.getByRole("button", { name: "Download" })).toBeDisabled();
   });
 
   it("caps the booking date at the admin's local today, not the UTC date", async () => {

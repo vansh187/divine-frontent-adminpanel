@@ -6,13 +6,22 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** "lg" is wide enough to show a document page. */
+  size?: "md" | "lg";
 }
 
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, size = "md" }: ModalProps) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-4">
-      <div className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:max-w-md sm:rounded-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl ${
+          size === "lg" ? "sm:max-w-4xl" : "sm:max-w-md"
+        }`}
+      >
         <div className="flex items-center justify-between gap-3 px-5 pt-5 sm:px-6 sm:pt-6">
           <h2 className="text-lg font-bold text-text">{title}</h2>
           <button

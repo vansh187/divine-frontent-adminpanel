@@ -284,6 +284,8 @@ export function OfflinePlotPlanCard({
                     <th className="py-2 pr-3 font-medium">Instalment</th>
                     <th className="py-2 pr-3 font-medium">Due date</th>
                     <th className="py-2 pr-3 text-right font-medium">Amount</th>
+                    <th className="py-2 pr-3 text-right font-medium">Paid</th>
+                    <th className="py-2 pr-3 text-right font-medium">Balance</th>
                     <th className="py-2 font-medium">Status</th>
                   </tr>
                 </thead>
@@ -297,6 +299,13 @@ export function OfflinePlotPlanCard({
                       </td>
                       <td className="py-2 pr-3 text-text">{row.due_date ? formatDate(row.due_date) : "Not dated yet"}</td>
                       <td className="py-2 pr-3 text-right text-text">{formatCurrency(row.amount)}</td>
+                      {/* Balance = Amount - Paid (an instalment can be paid in parts). */}
+                      <td className="py-2 pr-3 text-right text-text">
+                        {formatCurrency(row.amount_paid ?? (row.status === "paid" ? row.amount : 0))}
+                      </td>
+                      <td className="py-2 pr-3 text-right font-semibold text-text">
+                        {formatCurrency(row.balance ?? (row.status === "paid" ? 0 : row.amount))}
+                      </td>
                       <td className="py-2">
                         <StatusBadge status={row.status.toUpperCase()} />
                       </td>

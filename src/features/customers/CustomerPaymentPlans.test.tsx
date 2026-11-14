@@ -409,7 +409,7 @@ describe("CustomerPaymentPlans - partial failures, order and names", () => {
   });
 
   it("treats the same applicant with or without a salutation as one person", () => {
-    expect(distinctApplicants(["Mr. Sunil Kumar", "Sunil  Kumar", "sunil kumar", null, " "])).toEqual(["Mr. Sunil Kumar"]);
+    expect(distinctApplicants(["Mr. Rohit Mehra", "Rohit  Mehra", "rohit mehra", null, " "])).toEqual(["Mr. Rohit Mehra"]);
     expect(distinctApplicants(["Mrs. Asha Rao", "Asha Rao", "Mr. Vikas Rao"])).toEqual(["Mrs. Asha Rao", "Mr. Vikas Rao"]);
     // Only a leading salutation is dropped: different people stay different.
     expect(distinctApplicants(["Dr Mira Shah", "Mira Shahi"])).toEqual(["Dr Mira Shah", "Mira Shahi"]);
@@ -512,5 +512,33 @@ describe("CustomerPaymentPlans - applicants", () => {
     expect(card.getByText("Mr. Vikas Rao")).toBeInTheDocument();
     expect(card.getByText("Mrs. Meena Rao, Mr. Ajay Rao")).toBeInTheDocument();
     expect(card.getByText(/Co-applicants:/)).toBeInTheDocument();
+  });
+});
+
+describe("CustomerPaymentPlans - part-paid instalments", () => {
+  it("shows each instalment's amount, what is paid and the balance (amount - paid)", async () => {
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({
+      plots: [
+        offlinePlot("D8", {
+          terms_status: "complete", demand_letter_available: true, total: 2627460,
+          amount_received: 1574870, outstanding: 1052590,
+          schedule: [
+            { milestone_no: 3, label: "Within 90 days of booking", percent: 25, due_date: "2026-08-03",
+              amount: 656865, amount_paid: 656865, balance: 0, status: "paid" },
+            { milestone_no: 4, label: "Within 180 days of booking", percent: 25, due_date: "2026-11-01",
+              amount: 656865, amount_paid: 261140, balance: 395725, status: "overdue" },
+          ],
+        }),
+      ],
+    });
+    renderSection();
+    const row = (await screen.findByText("Within 180 days of booking")).closest("tr") as HTMLElement;
+    const cells = within(row).getAllByRole("cell").map((c) => c.textContent);
+    expect(cells.slice(3, 6)).toEqual(["₹6,56,865", "₹2,61,140", "₹3,95,725"]);
+    const paidRow = screen.getByText("Within 90 days of booking").closest("tr") as HTMLElement;
+    expect(within(paidRow).getAllByRole("cell").map((c) => c.textContent).slice(3, 6)).toEqual(
+      ["₹6,56,865", "₹6,56,865", "₹0"]
+    );
   });
 });

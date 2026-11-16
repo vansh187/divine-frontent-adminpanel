@@ -7,6 +7,7 @@ import {
   type ApiBookingDetail,
   type ApiBookingListItem,
   type ApiCustomerPlot,
+  type ApiPaymentPlan,
   type BookingListParams,
   type BookingStatus,
 } from "../../lib/api";
@@ -18,8 +19,10 @@ const getBooking = vi.fn();
 const getCustomerDetail = vi.fn();
 const setPlotPaymentTerms = vi.fn();
 const downloadPlotDemandLetter = vi.fn();
+const listAdminPaymentPlans = vi.fn();
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
+  listAdminPaymentPlans: (...args: unknown[]) => listAdminPaymentPlans(...args),
   listBookings: (...args: unknown[]) => listBookings(...args),
   getBooking: (...args: unknown[]) => getBooking(...args),
   getCustomerDetail: (...args: unknown[]) => getCustomerDetail(...args),
@@ -113,6 +116,7 @@ beforeEach(() => {
   getCustomerDetail.mockResolvedValue({ plots: [] });
   setPlotPaymentTerms.mockReset();
   downloadPlotDemandLetter.mockReset();
+  listAdminPaymentPlans.mockReset();
   saveBlob.mockReset();
 });
 
@@ -436,7 +440,7 @@ describe("CustomerPaymentPlans - partial failures, order and names", () => {
     const user = userEvent.setup();
     renderSection();
 
-    await user.click(await screen.findByRole("button", { name: "Edit terms" }));
+    await user.click(await screen.findByRole("button", { name: "Edit prices" }));
     expect(screen.queryByText(/removes this plot's prices/)).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("Basic sale price (₹)"));
     await user.clear(screen.getByLabelText("PLC (₹)"));
@@ -498,6 +502,81 @@ describe("CustomerPaymentPlans - partial failures, order and names", () => {
     renderSection();
     await user.click(await screen.findByRole("button", { name: "Enter prices" }));
     expect(screen.getByLabelText("Booking date")).toHaveAttribute("max", localDateISO());
+  });
+});
+
+describe("CustomerPaymentPlans - Edit terms changes the plan", () => {
+  const plan = (code: string, short: string, name: string, overrides: Partial<ApiPaymentPlan> = {}): ApiPaymentPlan => ({
+    code, short_code: short, name, description: null, project_id: null, version: 1, is_active: true, valid: true,
+    instalments: [
+      { seq: 1, label: "On booking", percent: 10, due_trigger: "booking", due_days: 0, due_text: "", charge_head: null },
+      { seq: 2, label: "Within 90 days", percent: 90, due_trigger: "booking", due_days: 90, due_text: "", charge_head: null },
+    ],
+    ...overrides,
+  });
+  const priced = () =>
+    offlinePlot("D8", {
+      sale_price: 5000000, plc: 100000, ifms: 20000, cam: null, total: 5120000,
+      amount_received: 500000, outstanding: 4620000, terms_status: "complete", demand_letter_available: true,
+    });
+
+  it("lists every plan the company offers and moves the plot to the chosen one, keeping its prices", async () => {
+    listAdminPaymentPlans.mockResolvedValue({
+      count: 5,
+      plans: [
+        plan("PP1/FPP/10-15-25-25-15-10", "PP1", "Flexible Payment Plan"),
+        plan("PP2/CLP", "PP2", "Construction Linked", { version: 2 }),
+        plan("PP2/CLP", "PP2", "Construction Linked (old)", { version: 1 }),
+        plan("PP3/DPP", "PP3", "Down Payment", { is_active: false }),
+        plan("PP4/BROKEN", "PP4", "Broken", { valid: false }),
+      ],
+    });
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({ plots: [priced()] });
+    setPlotPaymentTerms.mockResolvedValue({ ...priced(), payment_plan: { code: "PP2/CLP", short_code: "PP2", name: "Construction Linked", version: 2 } });
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Edit terms" }));
+    const form = within(screen.getByRole("form", { name: "Change payment plan" }));
+    const radios = await form.findAllByRole("radio");
+    // Newest active, valid version of each code only; no price fields.
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toHaveAccessibleName(/^PP1 — Flexible Payment Plan/);
+    expect(radios[1]).toHaveAccessibleName(/^PP2 — Construction Linked(?! \(old\))/);
+    expect(form.queryByLabelText("Basic sale price (₹)")).not.toBeInTheDocument();
+    expect(radios[0]).toBeChecked();
+    expect(form.getByText("Current plan")).toBeInTheDocument();
+    expect(form.getByRole("button", { name: "Change plan" })).toBeDisabled();
+
+    await user.click(radios[1]);
+    expect(form.getByText(/rebuilt from PP2 — Construction Linked/)).toBeInTheDocument();
+    await user.click(form.getByRole("button", { name: "Change plan" }));
+
+    expect(setPlotPaymentTerms).toHaveBeenCalledWith("token", CUSTOMER, "DOC-D8", {
+      payment_plan: "PP2", booking_date: "2026-04-18",
+      sale_price: 5000000, plc: 100000, ifms: 20000, cam: null, amount_received: 500000,
+    });
+    expect(await screen.findByText(/Construction Linked \(PP2\) · v2/)).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Change payment plan" })).not.toBeInTheDocument();
+  });
+
+  it("explains a refused plan change and offers a retry when the plans can't be loaded", async () => {
+    listAdminPaymentPlans.mockRejectedValueOnce(new ApiError(500, "Plans unavailable"));
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({ plots: [priced()] });
+    setPlotPaymentTerms.mockRejectedValue(new ApiError(409, "schedule_has_payments", "schedule_has_payments"));
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Edit terms" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Plans unavailable");
+
+    listAdminPaymentPlans.mockResolvedValue({ count: 2, plans: [plan("PP1/FPP/10-15-25-25-15-10", "PP1", "Flexible"), plan("PP2/CLP", "PP2", "CLP")] });
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await user.click(await screen.findByRole("radio", { name: /PP2 — CLP/ }));
+    await user.click(screen.getByRole("button", { name: "Change plan" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("already paid online");
   });
 });
 

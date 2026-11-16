@@ -15,6 +15,7 @@ import { saveBlob } from "../../lib/download";
 import { formatCurrency, formatDate, localDateISO } from "../../lib/format";
 import { PlanCardHeader } from "../bookings/PaymentPlanCard";
 import { planTitle } from "../bookings/planTitle";
+import { PlotPlanPicker } from "./PlotPlanPicker";
 
 /** Backend error codes for a plot's terms, worded for the admin. */
 const TERMS_ERRORS: Record<string, string> = {
@@ -96,7 +97,8 @@ export function OfflinePlotPlanCard({
   plot: ApiCustomerPlot;
   onSaved: (plot: ApiCustomerPlot) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  // "plan": choose another of the company's plans; "terms": the plan, date and prices form.
+  const [editing, setEditing] = useState<"plan" | "terms" | null>(null);
   const [form, setForm] = useState<TermsForm>(() => formFrom(plot));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,19 +117,19 @@ export function OfflinePlotPlanCard({
   const set = (key: keyof TermsForm) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  function startEditing() {
+  function startEditing(mode: "plan" | "terms") {
     setForm(formFrom(plot));
     setError(null);
-    setEditing(true);
+    setEditing(mode);
   }
 
-  async function save(e: FormEvent) {
+  function save(e: FormEvent) {
     e.preventDefault();
     if (!form.payment_plan.trim() || !form.booking_date) {
       setError("Enter the payment plan and the booking date.");
       return;
     }
-    const payload: PlotPaymentTermsPayload = {
+    submit({
       payment_plan: form.payment_plan.trim(),
       booking_date: form.booking_date,
       sale_price: optionalNumber(form.sale_price),
@@ -135,12 +137,32 @@ export function OfflinePlotPlanCard({
       ifms: optionalNumber(form.ifms),
       cam: optionalNumber(form.cam),
       amount_received: optionalNumber(form.amount_received),
-    };
+    });
+  }
+
+  /** Moves the plot to another plan, keeping its booking date and prices as they are. */
+  function changePlan(planRef: string) {
+    if (!plot.booking_date) {
+      setError("This plot has no booking date. Use Edit prices to enter it first.");
+      return;
+    }
+    submit({
+      payment_plan: planRef,
+      booking_date: plot.booking_date,
+      sale_price: plot.sale_price,
+      plc: plot.plc,
+      ifms: plot.ifms,
+      cam: plot.cam,
+      amount_received: plot.amount_received,
+    });
+  }
+
+  async function submit(payload: PlotPaymentTermsPayload) {
     setSaving(true);
     setError(null);
     try {
       const saved = await setPlotPaymentTerms(accessToken, customerId, plot.document_id, payload);
-      setEditing(false);
+      setEditing(null);
       onSaved(saved);
     } catch (err) {
       setError(errorText(err, "The payment plan could not be saved. Please try again."));
@@ -203,7 +225,16 @@ export function OfflinePlotPlanCard({
         </p>
       )}
 
-      {editing ? (
+      {editing === "plan" ? (
+        <PlotPlanPicker
+          accessToken={accessToken}
+          currentCode={plot.payment_plan?.code ?? null}
+          saving={saving}
+          error={error}
+          onSave={changePlan}
+          onCancel={() => setEditing(null)}
+        />
+      ) : editing === "terms" ? (
         <form onSubmit={save} className="space-y-4" aria-label="Payment terms">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <TextField
@@ -249,7 +280,7 @@ export function OfflinePlotPlanCard({
             <Button type="submit" size="sm" disabled={saving}>
               {saving ? "Saving..." : "Save"}
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => setEditing(false)}>
+            <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => setEditing(null)}>
               Cancel
             </Button>
           </div>
@@ -327,15 +358,22 @@ export function OfflinePlotPlanCard({
                 </Button>
               </>
             )}
-            {plot.terms_editable && (
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                {plot.terms_status === "plan_needed"
-                  ? "Link payment plan"
-                  : plot.terms_status === "price_needed"
-                    ? "Enter prices"
-                    : "Edit terms"}
-              </Button>
-            )}
+            {plot.terms_editable &&
+              (plot.terms_status === "complete" ? (
+                <>
+                  {/* Edit terms lists the company's plans to move the plot to; prices have their own button. */}
+                  <Button variant="outline" size="sm" onClick={() => startEditing("plan")}>
+                    Edit terms
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => startEditing("terms")}>
+                    Edit prices
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => startEditing("terms")}>
+                  {plot.terms_status === "plan_needed" ? "Link payment plan" : "Enter prices"}
+                </Button>
+              ))}
           </div>
           {downloadError && (
             <p role="alert" className="mt-2 text-sm text-danger">

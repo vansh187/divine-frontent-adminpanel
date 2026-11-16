@@ -391,7 +391,12 @@ export interface ApiCustomerPlotScheduleRow {
   percent: number | null;
   /** YYYY-MM-DD; null until its event (e.g. the offer of possession) has a date. */
   due_date: string | null;
+  /** The instalment in full. */
   amount: number;
+  /** Paid towards it so far (all of it once paid); absent on older backends. */
+  amount_paid?: number;
+  /** Still to pay: amount - amount_paid; absent on older backends. */
+  balance?: number;
   status: PlotScheduleStatus;
 }
 

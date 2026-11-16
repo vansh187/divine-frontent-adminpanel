@@ -32,8 +32,8 @@ interface PlotPlanRow {
 const SALUTATION = /^(mr|mrs|ms|miss|dr|shri|sh|smt|kumari|km)\.?\s+/i;
 
 /**
- * Compares applicant names the way people read them: "Mr. Sunil Kumar", "sunil  kumar" and
- * "Sunil Kumar" are one person. Only a leading salutation, case and spacing are ignored.
+ * Compares applicant names the way people read them: "Mr. Rohit Mehra", "rohit  mehra" and
+ * "Rohit Mehra" are one person. Only a leading salutation, case and spacing are ignored.
  */
 export function applicantKey(name: string): string {
   let key = name.trim().replace(/\s+/g, " ");

@@ -715,6 +715,11 @@ export interface ApiBookingDetail {
   is_offline?: boolean;
   /** Whether the KYC checklist accepts an upload right now. Absent on older backends. */
   can_upload_documents?: boolean;
+  /**
+   * Whether verifyBookingKyc would be accepted right now: an offline booking with all its
+   * documents uploaded, not verified yet. Absent on backends without that endpoint.
+   */
+  can_verify_kyc?: boolean;
   /** The plot's own applicant (buyers sharing an email share one account). */
   applicant_name?: string | null;
   customer_id: string;
@@ -810,6 +815,21 @@ export function approveBooking(
   payload: BookingDecisionPayload
 ): Promise<ApiBookingDetail> {
   return authRequest<ApiBookingDetail>(`/admin/bookings/${id}/approve`, accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Marks an existing (offline) customer's KYC as verified. Changes nothing else and sends no
+ * email. Replacing a document afterwards puts it back to pending.
+ */
+export function verifyBookingKyc(
+  accessToken: string,
+  id: string,
+  payload: BookingDecisionPayload
+): Promise<ApiBookingDetail> {
+  return authRequest<ApiBookingDetail>(`/admin/bookings/${encodeURIComponent(id)}/verify-kyc`, accessToken, {
     method: "POST",
     body: JSON.stringify(payload),
   });

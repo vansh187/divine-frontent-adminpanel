@@ -15,16 +15,18 @@ import type {
   ApiVisit,
   PlanChargeHead,
 } from "../../lib/api";
+import { bookingApplicant } from "../../lib/applicants";
 import { titleCase } from "../../lib/format";
+import { paymentMethodLabel } from "../../lib/paymentMethods";
+import { nextPaymentDue, receivedAmount } from "../bookings/bookingMoney";
 import { inventoryStatusLabel } from "../inventory/inventoryLabels";
 import { customerSourceLabel } from "../customers/customerSource";
 import {
-  BOOKING_DATE,
   DESCRIPTION_MAX,
   MAX_INSTALMENTS,
-  POSSESSION_DATE,
   blankInstalment,
   buildPlanPayload,
+  countedFromText,
   validatePlanForm,
   type PlanFormValues,
 } from "../paymentPlans/planForm";
@@ -60,13 +62,6 @@ export function stamp(value: string | null | undefined): string {
 const PROJECTS: Record<string, string> = {
   "suraksha-enclave": "Suraksha Enclave",
   "ops-divine-greens": "Ops Divine Greens",
-};
-
-const PAYMENT_METHODS: Record<string, string> = {
-  razorpay: "Razorpay",
-  zoho: "Zoho Payments",
-  cash: "Cash",
-  rtgs_neft: "RTGS/NEFT",
 };
 
 const VISIT_TYPES: Record<string, string> = { CUSTOMER: "Customer", CHANNEL_PARTNER: "Channel Partner" };
@@ -201,6 +196,14 @@ export const bookingsCsv: CsvSection<ApiBookingListItem> = {
     { header: "Project", value: (b) => b.project_name },
     { header: "Unit", value: (b) => b.unit_number },
     { header: "Amount", value: (b) => b.amount },
+    { header: "Applicant", value: (b) => bookingApplicant(b) },
+    { header: "Buyer Type", value: (b) => (b.is_offline === undefined ? "" : b.is_offline ? "Offline buyer" : "Website booking") },
+    { header: "Plot Price", value: (b) => b.total },
+    { header: "Received", value: (b) => receivedAmount(b) },
+    { header: "Outstanding", value: (b) => b.outstanding },
+    { header: "Next Payment", value: (b) => b.next_payment?.amount },
+    { header: "Next Payment Due", value: (b) => nextPaymentDue(b) },
+    { header: "Next Payment Status", value: (b) => titleCase(b.next_payment?.status ?? "") },
     { header: "KYC Status", value: (b) => titleCase(b.kyc_status) },
     { header: "Booking Status", value: (b) => titleCase(b.status) },
     { header: "Created At", value: (b) => stamp(b.created_at) },
@@ -236,7 +239,7 @@ export const refundsCsv: CsvSection<ApiRefundListItem> = {
     { header: "Unit", value: (r) => r.unit_number },
     { header: "Amount", value: (r) => r.amount },
     { header: "Currency", value: (r) => r.currency },
-    { header: "Method", value: (r) => label(PAYMENT_METHODS, r.method) },
+    { header: "Method", value: (r) => paymentMethodLabel(r.method) },
     { header: "Status", value: (r) => titleCase(r.status) },
     { header: "Initiated", value: (r) => stamp(r.refund_initiated_date) },
     { header: "Completed", value: (r) => stamp(r.refund_completed_date) },
@@ -272,7 +275,7 @@ export const revenueCsv: CsvSection<ApiRevenueTransaction> = {
     { header: "Unit", value: (t) => t.unit_number },
     { header: "Amount", value: (t) => t.amount },
     { header: "Currency", value: (t) => t.currency },
-    { header: "Method", value: (t) => label(PAYMENT_METHODS, t.method) },
+    { header: "Method", value: (t) => paymentMethodLabel(t.method) },
     { header: "Status", value: (t) => titleCase(t.status) },
     { header: "Date", value: (t) => stamp(t.created_at) },
   ],
@@ -313,13 +316,6 @@ export function planCsvRows(current: ApiPaymentPlan[], all: ApiPaymentPlan[]): P
     const instalments = plan.instalments?.length ? plan.instalments : [null];
     return instalments.map((instalment) => ({ plan, instalment, plots }));
   });
-}
-
-function countedFrom(i: ApiPlanInstalment | null) {
-  if (!i) return "";
-  if (i.due_trigger === "booking") return BOOKING_DATE;
-  if (i.due_trigger === "possession") return POSSESSION_DATE;
-  return i.due_from ?? i.due_text;
 }
 
 const CHARGES = ["PLC", "IFMS", "CAM"];
@@ -476,7 +472,7 @@ export function paymentPlansCsv(existing: ApiPaymentPlan[]): CsvSection<PlanCsvR
       { header: "Plots Using Plan", value: (r) => r.plots },
       planColumn(H.label, "label", (r) => r.instalment?.label, true),
       planColumn(H.percent, "percent", (r) => r.instalment?.percent, true),
-      planColumn(H.countedFrom, "due_from", (r) => countedFrom(r.instalment), true),
+      planColumn(H.countedFrom, "due_from", (r) => (r.instalment ? countedFromText(r.instalment) : ""), true),
       planColumn(H.dueDays, "due_days", (r) => r.instalment?.due_days ?? (r.instalment ? 0 : null)),
       planColumn(H.charges, "charge_head", (r) => r.instalment?.charge_head),
       { header: "Due Wording", value: (r) => r.instalment?.due_text },

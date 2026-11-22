@@ -1,16 +1,20 @@
 /**
- * Pure rules behind the Add Payment Plan form: field validation, the "Counted from"
+ * Pure rules behind the Add / Edit Payment Plan form: field validation, the "Counted from"
  * mapping, the due wording, and the exact payload sent to the backend. Kept free of
  * React so they can be unit-tested and checked against the backend's contract tests.
  */
 import {
   ApiError,
   type ApiPaymentPlan,
+  type ApiPlanInstalment,
   type PaymentPlanCreatePayload,
+  type PaymentPlanDetailsPayload,
+  type PaymentPlanVersionPayload,
   type PlanChargeHead,
   type PlanDueTrigger,
+  type PlanInstalmentInput,
 } from "../../lib/api";
-import { PAIR_CHARGE_HEADS, chargesIn } from "./planLabels";
+import { CHARGE_HEAD_OPTIONS, PAIR_CHARGE_HEADS, chargesIn } from "./planLabels";
 
 // Mirrors the backend's rules (service_payment_plans.normalize_definition).
 const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9/_.-]{1,79}$/;
@@ -47,6 +51,9 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   invalid_payment_plan:
     "The plan is invalid: percentages must add up to 100 and each charge can be added to only one instalment.",
   sale_price_too_small: "The instalment split produces amounts that are too small. Check the percentages.",
+  payment_plan_not_found: "This plan no longer exists. Go back to Payment Plans and reload the page.",
+  payment_plan_version_conflict:
+    "This plan has changed since you opened it, so nothing was saved just now. Another admin may have edited it, or an earlier save of yours went through although the connection dropped. Reload the page to see the latest version before making changes.",
 };
 
 // Shown when the server rejects a plan that relies on the backend update for a free-text
@@ -108,6 +115,13 @@ export function triggerFor(countedFrom: string): PlanDueTrigger {
 /** The "Counted from" text as stored: trimmed, inner whitespace collapsed (same as the backend). */
 export function cleanEventText(countedFrom: string) {
   return countedFrom.trim().replace(/\s+/g, " ");
+}
+
+/** A stored instalment's "Counted from" text, as an admin would type it. */
+export function countedFromText(i: ApiPlanInstalment) {
+  if (i.due_trigger === "booking") return BOOKING_DATE;
+  if (i.due_trigger === "possession") return POSSESSION_DATE;
+  return i.due_from ?? i.due_text;
 }
 
 /** Whole days from the "Days later" text; blank or invalid counts as 0 (validation flags invalid). */
@@ -215,6 +229,22 @@ export function validatePlanForm(values: PlanFormValues, existingPlans: ApiPayme
   return errors;
 }
 
+/** The instalment rows exactly as the backend takes them. */
+function instalmentInputs(instalments: InstalmentDraft[]): PlanInstalmentInput[] {
+  return instalments.map((row) => {
+    const trigger = triggerFor(row.countedFrom);
+    return {
+      label: row.label.trim(),
+      percent: Number(row.percent.trim()),
+      due_trigger: trigger,
+      due_days: parseDays(row.dueDays),
+      // Only custom events carry their wording, so standard plans send exactly what they always did.
+      ...(trigger === "custom" ? { due_from: cleanEventText(row.countedFrom) } : {}),
+      charge_head: row.chargeHead || null,
+    };
+  });
+}
+
 /** The exact body sent to POST /admin/payment-plans and /validate. */
 export function buildPlanPayload(values: PlanFormValues, existingPlans: ApiPaymentPlan[]): PaymentPlanCreatePayload {
   // Admins no longer set a display order: new plans go after the existing ones in
@@ -227,19 +257,104 @@ export function buildPlanPayload(values: PlanFormValues, existingPlans: ApiPayme
     description: values.description.trim() || null,
     project_id: values.projectId.trim() || null,
     ...(maxOrder >= 0 ? { sort_order: Math.min(1000, maxOrder + 1) } : {}),
-    instalments: values.instalments.map((row) => {
-      const trigger = triggerFor(row.countedFrom);
-      return {
-        label: row.label.trim(),
-        percent: Number(row.percent.trim()),
-        due_trigger: trigger,
-        due_days: parseDays(row.dueDays),
-        // Only custom events carry their wording, so standard plans send exactly what they always did.
-        ...(trigger === "custom" ? { due_from: cleanEventText(row.countedFrom) } : {}),
-        charge_head: row.chargeHead || null,
-      };
-    }),
+    instalments: instalmentInputs(values.instalments),
   };
+}
+
+/** The form's starting rows for a plan that has none yet. */
+export function starterInstalments(): InstalmentDraft[] {
+  return [blankInstalment({ label: "Booking Amount" }), blankInstalment()];
+}
+
+/** An existing plan as form values. A stored plan that failed validation has no rows, so it starts afresh. */
+export function planFormValues(plan: ApiPaymentPlan): PlanFormValues {
+  return {
+    code: plan.code,
+    shortCode: plan.short_code ?? "",
+    name: plan.name ?? "",
+    description: plan.description ?? "",
+    projectId: plan.project_id ?? "",
+    instalments: plan.instalments?.length
+      ? plan.instalments.map((i) =>
+          blankInstalment({
+            label: i.label,
+            percent: String(i.percent),
+            countedFrom: countedFromText(i),
+            dueDays: i.due_days === null ? "" : String(i.due_days),
+            chargeHead: CHARGE_HEAD_OPTIONS.find((o) => o.value === i.charge_head)?.value ?? "",
+          })
+        )
+      : starterInstalments(),
+  };
+}
+
+/**
+ * How an edit is saved. "details": only the name or description changed, so the current
+ * version is updated as it is. "version": anything else is saved as a new version, which
+ * the backend makes active and which leaves existing bookings on the version they paid for.
+ */
+export type PlanEdit =
+  | { kind: "none" }
+  | { kind: "details"; payload: PaymentPlanDetailsPayload }
+  | { kind: "version"; payload: PaymentPlanVersionPayload };
+
+export function planEdit(plan: ApiPaymentPlan, values: PlanFormValues): PlanEdit {
+  const before = planFormValues(plan);
+  const name = values.name.trim();
+  const description = values.description.trim();
+  const projectId = values.projectId.trim();
+  const shortCode = values.shortCode.trim();
+  const instalments = instalmentInputs(values.instalments);
+
+  const needsVersion =
+    !plan.instalments?.length ||
+    shortCode !== before.shortCode.trim() ||
+    projectId !== before.projectId.trim() ||
+    JSON.stringify(instalments) !== JSON.stringify(instalmentInputs(before.instalments));
+  if (needsVersion)
+    return {
+      kind: "version",
+      payload: {
+        code: plan.code,
+        short_code: shortCode,
+        name,
+        description,
+        project_id: projectId,
+        // Keeps its place in the dropdown, even when a newer inactive version has another one.
+        ...(typeof plan.sort_order === "number" ? { sort_order: plan.sort_order } : {}),
+        instalments,
+      },
+    };
+
+  const nameChanged = name !== before.name.trim();
+  const descriptionChanged = description !== before.description.trim();
+  if (!nameChanged && !descriptionChanged) return { kind: "none" };
+  return {
+    kind: "details",
+    payload: {
+      code: plan.code,
+      ...(nameChanged ? { name } : {}),
+      ...(descriptionChanged ? { description } : {}),
+    },
+  };
+}
+
+/**
+ * validatePlanForm for an edit: the plan may keep its own (permanent) code and its short code,
+ * and a change of name or description isn't held up by fields it doesn't save.
+ */
+export function validatePlanEdit(
+  plan: ApiPaymentPlan,
+  values: PlanFormValues,
+  existingPlans: ApiPaymentPlan[]
+): Record<string, string> {
+  const errors = validatePlanForm(
+    values,
+    existingPlans.filter((p) => p.code !== plan.code)
+  );
+  delete errors.code;
+  if (planEdit(plan, values).kind === "version") return errors;
+  return errors.name ? { name: errors.name } : {};
 }
 
 /**

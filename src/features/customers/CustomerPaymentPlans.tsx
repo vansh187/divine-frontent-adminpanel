@@ -14,6 +14,7 @@ import {
   type ApiCustomerPlot,
   type BookingStatus,
 } from "../../lib/api";
+import { bookingApplicant, distinctApplicants } from "../../lib/applicants";
 import { fetchPages } from "../../lib/pagination";
 import { PaymentPlanCard, PlanCardHeader } from "../bookings/PaymentPlanCard";
 import { planTitle } from "../bookings/planTitle";
@@ -27,30 +28,6 @@ interface PlotPlanRow {
   plan: string | null;
   status: string;
   kind: "Website booking" | "Offline buyer";
-}
-
-const SALUTATION = /^(mr|mrs|ms|miss|dr|shri|sh|smt|kumari|km)\.?\s+/i;
-
-/**
- * Compares applicant names the way people read them: "Mr. Rohit Mehra", "rohit  mehra" and
- * "Rohit Mehra" are one person. Only a leading salutation, case and spacing are ignored.
- */
-export function applicantKey(name: string): string {
-  let key = name.trim().replace(/\s+/g, " ");
-  while (SALUTATION.test(key)) key = key.replace(SALUTATION, "");
-  return key.toLowerCase();
-}
-
-/** The distinct applicants, each under the first spelling seen. */
-export function distinctApplicants(names: (string | null | undefined)[]): string[] {
-  const byKey = new Map<string, string>();
-  for (const name of names) {
-    const shown = name?.trim().replace(/\s+/g, " ");
-    if (!shown) continue;
-    const key = applicantKey(shown);
-    if (key && !byKey.has(key)) byKey.set(key, shown);
-  }
-  return [...byKey.values()];
 }
 
 /** Project, then plot in natural order ("A-9" before "A-10", "A-100" before "B-2"). */
@@ -249,7 +226,12 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
   if ((!entries && !bookingsFailed) || !offlinePlots) {
     return <Card className="p-5 text-sm text-text-muted">Loading payment plans...</Card>;
   }
-  const bookings = entries ?? [];
+  // An offline plot with a booking is one plot: shown once, as its plot card (which links to
+  // the booking), not again as a booking card.
+  const offlineBookingIds = new Set(offlinePlots.map((p) => p.booking_id).filter(Boolean));
+  const bookings = (entries ?? []).filter(({ item }) => !offlineBookingIds.has(item.id));
+  // The plot card has no payment submissions of its own: they come from the plot's booking.
+  const bookingOf = (plot: ApiCustomerPlot) => entries?.find(({ item }) => item.id === plot.booking_id);
   // The summary is only shown when it lists every plot.
   const complete = !bookingsFailed && !offlineError;
 
@@ -280,10 +262,10 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
                 key: `booking-${item.id}`,
                 project: item.project_name,
                 plot: item.unit_number,
-                applicant: detail?.customer_name ?? item.customer_name ?? null,
+                applicant: bookingApplicant({ ...item, applicant_name: detail?.applicant_name ?? item.applicant_name }),
                 plan: planTitle(detail?.payment_plan),
                 status: item.status === "booked" ? "Booked" : "Under KYC review",
-                kind: "Website booking",
+                kind: (detail?.is_offline ?? item.is_offline) ? "Offline buyer" : "Website booking",
               })
             ),
           ].sort(comparePlotRows)}
@@ -298,15 +280,36 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
         <LoadError message={offlineError} onRetry={() => setOfflineReloadKey((k) => k + 1)} />
       )}
 
-      {offlinePlots.map((plot) => (
-        <OfflinePlotPlanCard
-          key={plot.document_id}
-          accessToken={accessToken}
-          customerId={customerId}
-          plot={plot}
-          onSaved={replaceOfflinePlot}
-        />
-      ))}
+      {offlinePlots.map((plot) => {
+        const entry = bookingOf(plot);
+        const refreshBooking = () => {
+          if (entry) retryBooking(entry.item.id);
+        };
+        return (
+          <OfflinePlotPlanCard
+            key={plot.document_id}
+            accessToken={accessToken}
+            customerId={customerId}
+            plot={plot}
+            pendingPayments={(entry?.detail?.payment_schedule ?? []).filter((m) => m.status === "pending_review")}
+            pendingUnknown={
+              entry && !entry.detail && !entry.loading ? (
+                <div className="mb-4">
+                  <LoadError
+                    message="Couldn't check whether a payment for this plot is awaiting confirmation."
+                    onRetry={refreshBooking}
+                  />
+                </div>
+              ) : null
+            }
+            onSaved={(saved) => {
+              replaceOfflinePlot(saved);
+              refreshBooking();
+            }}
+            onPaymentAwaiting={refreshBooking}
+          />
+        );
+      })}
 
       {complete && bookings.length === 0 && offlinePlots.length === 0 && (
         <Card className="p-5">

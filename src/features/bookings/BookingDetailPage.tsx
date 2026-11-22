@@ -18,10 +18,12 @@ import {
   type ApiBookingDetail,
   type BookingDocumentType,
 } from "../../lib/api";
+import { bookingApplicant, otherAccountHolder } from "../../lib/applicants";
 import { useAuth } from "../../lib/auth";
 import { createIdempotencyKey } from "../../lib/idempotency";
 import { saveBlob } from "../../lib/download";
 import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
+import { paymentMethodLabel } from "../../lib/paymentMethods";
 import { SectionErrorBoundary } from "../../components/SectionErrorBoundary";
 import { DocumentPreviewModal, type DocumentPreview } from "../../components/DocumentPreviewModal";
 import { PaymentPlanCard } from "./PaymentPlanCard";
@@ -310,6 +312,8 @@ export function BookingDetailPage() {
         setModal(null);
         setNote("");
         fetchBooking();
+      } else if (err instanceof ApiError && err.code === "offline_booking_not_cancellable") {
+        setActionError("This plot was sold offline, so it can't be cancelled or refunded here.");
       } else if (err instanceof ApiError && err.status === 404) {
         setActionError("This booking could not be found. It may have been removed.");
         setModal(null);
@@ -399,7 +403,7 @@ export function BookingDetailPage() {
       setKycUploadErrors((current) => ({ ...current, [documentType]: "" }));
       delete uploadKeys.current[documentType];
       if (kycFileInputs.current[documentType]) kycFileInputs.current[documentType]!.value = "";
-      setActionNotice(`${updated.documents.find((doc) => doc.document_type === documentType)?.label ?? "Document"} uploaded. Review it before approving KYC.`);
+      setActionNotice(`${updated.documents.find((doc) => doc.document_type === documentType)?.label ?? "Document"} uploaded.${updated.is_offline ? "" : " Review it before approving KYC."}`);
     } catch (err) {
       if (bookingId !== id || requestVersion !== bookingRequestVersion.current) return;
       if (err instanceof ApiError && err.code === "document_saved_refresh_failed") {
@@ -419,7 +423,7 @@ export function BookingDetailPage() {
             setKycUploadErrors((current) => ({ ...current, [documentType]: "" }));
             delete uploadKeys.current[documentType];
             if (kycFileInputs.current[documentType]) kycFileInputs.current[documentType]!.value = "";
-            setActionNotice("Document saved. Review it before approving KYC.");
+            setActionNotice(`Document saved.${updated.is_offline ? "" : " Review it before approving KYC."}`);
           })
           .catch((refreshError) => {
             if (bookingId !== id || refreshVersion !== bookingRequestVersion.current) return;
@@ -489,6 +493,9 @@ export function BookingDetailPage() {
   const documentsByType = new Map((booking?.documents ?? []).map((doc) => [doc.document_type, doc]));
   const allDocumentsUploaded = REQUIRED_KYC_DOCUMENT_TYPES.every((type) => documentsByType.get(type)?.uploaded === true);
   const canApprove = isReviewable && allDocumentsUploaded;
+  // The server decides: an offline booking accepts uploads although it is already booked.
+  const canUpload = booking?.can_upload_documents ?? isReviewable;
+  const accountHolder = booking ? otherAccountHolder(booking) : null;
   // Same truthiness check for label and value so an empty string never yields a blank reference.
   const paymentReference = booking?.utr_number
     ? { label: "UTR Number", value: booking.utr_number }
@@ -533,9 +540,9 @@ export function BookingDetailPage() {
                 <StatusBadge status={booking.status.toUpperCase()} />
               </div>
               <p className="mt-1 text-sm text-text-muted">
-                {booking.customer_name} · {booking.project_name} · Unit {booking.unit_number}
+                {bookingApplicant(booking)} · {booking.project_name} · Unit {booking.unit_number}
               </p>
-              {!isReviewable && (
+              {!isReviewable && !booking.is_offline && (
                 <p className="mt-1 text-xs font-medium text-gold-dark">
                   This booking has already been decided and can no longer be reviewed.
                 </p>
@@ -547,7 +554,7 @@ export function BookingDetailPage() {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              {booking.status === "booked" && (
+              {booking.status === "booked" && !booking.is_offline && (
                 <Button variant="secondary" size="sm" onClick={() => openModal("cancelPlot")}>
                   Cancel Plot Booked
                 </Button>
@@ -568,14 +575,21 @@ export function BookingDetailPage() {
                 <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
                   <div>
                     <dt className="text-xs text-text-muted">Customer</dt>
-                    <dd className="font-medium text-text">{booking.customer_name}</dd>
+                    <dd className="font-medium text-text">{bookingApplicant(booking)}</dd>
+                    {booking.is_offline && <dd className="text-xs text-text-muted">Offline buyer</dd>}
                   </div>
+                  {accountHolder && (
+                    <div>
+                      <dt className="text-xs text-text-muted">Account Holder</dt>
+                      <dd className="font-medium text-text">{accountHolder}</dd>
+                    </div>
+                  )}
                   <div>
-                    <dt className="text-xs text-text-muted">Email</dt>
+                    <dt className="text-xs text-text-muted">{accountHolder ? "Account Holder's Email" : "Email"}</dt>
                     <dd className="font-medium text-text">{booking.customer_email ?? "-"}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-text-muted">Phone</dt>
+                    <dt className="text-xs text-text-muted">{accountHolder ? "Account Holder's Phone" : "Phone"}</dt>
                     <dd className="font-medium text-text">{booking.customer_phone ?? "-"}</dd>
                   </div>
                   <div>
@@ -602,11 +616,11 @@ export function BookingDetailPage() {
                 <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
                   <div>
                     <dt className="text-xs text-text-muted">Amount</dt>
-                    <dd className="font-semibold text-text">{formatCurrency(booking.amount)}</dd>
+                    <dd className="font-semibold text-text">{booking.amount == null ? "-" : formatCurrency(booking.amount)}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-text-muted">Method</dt>
-                    <dd className="font-medium text-text">{titleCase(booking.payment_method ?? "-")}</dd>
+                    <dd className="font-medium text-text">{paymentMethodLabel(booking.payment_method) || "-"}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-text-muted">Payment Status</dt>
@@ -648,7 +662,9 @@ export function BookingDetailPage() {
                     <StatusBadge status={booking.kyc_status.toUpperCase()} />
                   </div>
                   <p className="mb-4 text-xs text-text-muted">
-                    Upload or replace a document on the customer&apos;s behalf. Aadhaar, PAN, and photo documents must be JPG, JPEG, or PNG images. PDF is accepted only for a cancelled cheque. Maximum size: 10 MiB.
+                    {canUpload
+                      ? "Upload or replace a document on the customer's behalf. Aadhaar, PAN, and photo documents must be JPG, JPEG, or PNG images. PDF is accepted only for a cancelled cheque. Maximum size: 10 MiB."
+                      : "This booking's documents can be viewed but no longer changed."}
                   </p>
                   <div className="space-y-3">
                     {REQUIRED_KYC_DOCUMENT_TYPES.map((documentType) => {
@@ -683,7 +699,7 @@ export function BookingDetailPage() {
                               {doc?.uploaded && !doc.preview_url && (
                                 <span className="text-xs text-text-muted">Preview unavailable; refresh booking</span>
                               )}
-                              {isReviewable && (
+                              {canUpload && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -701,7 +717,7 @@ export function BookingDetailPage() {
                             accept={acceptedKycFileTypes(documentType)}
                             className="sr-only"
                             aria-label={`Choose ${doc?.label ?? KYC_DOCUMENT_LABELS[documentType]} file`}
-                            disabled={!isReviewable || uploadingKycType !== null}
+                            disabled={!canUpload || uploadingKycType !== null}
                             onChange={(event) => {
                               const file = event.currentTarget.files?.[0] ?? null;
                               setSelectedKycFiles((current) => ({ ...current, [documentType]: file }));
@@ -709,7 +725,7 @@ export function BookingDetailPage() {
                               delete uploadKeys.current[documentType];
                             }}
                           />
-                          {selectedFile && (
+                          {canUpload && selectedFile && (
                             <div className="mt-3 space-y-2 rounded-lg bg-surface-muted p-3">
                               <p className="break-all text-xs text-text-muted">Selected: {selectedFile.name}</p>
                               <label className="block text-xs font-medium text-text-muted" htmlFor={`kyc-note-${documentType}`}>
@@ -746,9 +762,13 @@ export function BookingDetailPage() {
                       );
                     })}
                   </div>
-                  <p className="mt-3 text-xs text-text-soft">
-                    Uploading does not approve KYC. Review each document and approve the booking only after verification.
-                  </p>
+                  {canUpload && (
+                    <p className="mt-3 text-xs text-text-soft">
+                      {booking.is_offline
+                        ? "These documents belong to this plot only. Uploading does not change its KYC status."
+                        : "Uploading does not approve KYC. Review each document and approve the booking only after verification."}
+                    </p>
+                  )}
                 </Card>
               </SectionErrorBoundary>
             </div>
@@ -777,7 +797,7 @@ export function BookingDetailPage() {
                 </ol>
               </Card>
 
-              {booking.status === "booked" && (
+              {booking.status === "booked" && !booking.is_offline && (
                 <Card className="p-5">
                   <h3 className="mb-2 text-sm font-bold text-text">Receipt</h3>
                   <p className="mb-3 text-xs text-text-muted">Final receipt is available for download.</p>

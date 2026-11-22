@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, type ApiCustomer, type ApiPaymentPlan } from "../../lib/api";
+import { ApiError, type ApiBookingListItem, type ApiCustomer, type ApiPaymentPlan } from "../../lib/api";
 import { parseCsv } from "../../lib/csv";
 import {
   date,
@@ -11,7 +11,7 @@ import {
   sectionCsv,
   time,
 } from "./csvModel";
-import { customersCsv, parseChargeHead, paymentPlansCsv, planCsvRows, visitsCsv } from "./sections";
+import { bookingsCsv, customersCsv, parseChargeHead, paymentPlansCsv, planCsvRows, refundsCsv, visitsCsv } from "./sections";
 
 const customer = (overrides: Partial<ApiCustomer> = {}): ApiCustomer => ({
   id: "c1",
@@ -260,5 +260,42 @@ describe("fetchAllPages", () => {
     });
     await expect(fetchAllPages(fetchPage, undefined, controller.signal)).rejects.toThrow();
     expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("bookings CSV agrees with the bookings table", () => {
+  const row = (overrides: Partial<ApiBookingListItem>) => {
+    const b: ApiBookingListItem = {
+      ...bookingsCsv.sample[0],
+      ...overrides,
+    };
+    const value = (header: string) => bookingsCsv.columns.find((c) => c.header === header)!.value(b);
+    return { received: value("Received"), applicant: value("Applicant"), type: value("Buyer Type"), due: value("Next Payment Due"), status: value("Next Payment Status") };
+  };
+
+  it("uses the table's Received rule", () => {
+    expect(row({ status: "pending_kyc_review", amount: 250000 }).received).toBe(250000);
+    expect(row({ status: "booked", amount: 250000, amount_received: 900000 }).received).toBe(900000);
+    expect(row({ status: "booked", amount: 250000, amount_received: 0 }).received).toBe(0);
+    expect(row({ status: "cancelled", amount: 250000 }).received).toBeNull();
+    expect(row({ status: "rejected", amount: 250000 }).received).toBeNull();
+  });
+
+  it("names the applicant and the kind of buyer", () => {
+    expect(row({ applicant_name: "Mr. Arun Rao", is_offline: true })).toMatchObject({ applicant: "Mr. Arun Rao", type: "Offline buyer" });
+    expect(row({ applicant_name: null, is_offline: false })).toMatchObject({ applicant: "Arjun Mehta", type: "Website booking" });
+    expect(row({}).type).toBe("");
+  });
+
+  it("gives the next payment's status, and says when it isn't dated", () => {
+    const next = { label: "P", amount: 10, due_date: null, due_text: null, days_until_due: null, status: "upcoming" as const };
+    expect(row({ next_payment: next })).toMatchObject({ due: "Not dated yet", status: "Upcoming" });
+    expect(row({ next_payment: { ...next, due_date: "2026-09-17", status: "overdue" } })).toMatchObject({ due: "2026-09-17", status: "Overdue" });
+    expect(row({ next_payment: null })).toMatchObject({ due: null, status: "" });
+  });
+
+  it("names a cheque refund's method", () => {
+    const method = refundsCsv.columns.find((c) => c.header === "Method")!;
+    expect(method.value({ ...refundsCsv.sample[0], method: "cheque" })).toBe("Cheque");
   });
 });

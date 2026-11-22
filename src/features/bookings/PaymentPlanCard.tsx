@@ -27,7 +27,6 @@ const RECORD_ERROR_MESSAGES: Record<string, string> = {
   cheque_number_required: "Enter the cheque number for a cheque payment.",
   installment_out_of_order: "Earlier installments must be recorded before this one.",
   installment_not_payable: "This installment cannot be paid yet.",
-  installment_amount_mismatch: "The amount does not match this installment.",
   milestone_not_found: "This installment could not be found.",
   invalid_method: "Choose a valid payment method.",
 };
@@ -36,11 +35,13 @@ const RECORD_ERROR_MESSAGES: Record<string, string> = {
 const STALE_ERROR_MESSAGES: Record<string, string> = {
   installment_already_paid: "This installment was already recorded — showing the latest state.",
   booking_not_booked: "This booking is no longer booked — showing the latest state.",
+  // Part of it was paid, or its plan changed, after this page loaded: the amount shown was old.
+  installment_amount_mismatch:
+    "The amount due on this installment has changed, so nothing was recorded — showing the latest state.",
 };
 
 const NOTE_MAX_LENGTH = 500;
 
-/** Today's date as YYYY-MM-DD in the admin's local timezone. */
 /**
  * Whether a milestone's pay_enabled_from has passed. A bare date ("2026-02-10") is a
  * calendar day and compared as one; a full timestamp is compared as an instant so a
@@ -54,7 +55,7 @@ function isPayableNow(payEnabledFrom: string | null | undefined) {
   return Number.isNaN(time) || time <= Date.now();
 }
 
-function dueInText(days: number | null | undefined) {
+export function dueInText(days: number | null | undefined) {
   if (typeof days !== "number") return null;
   if (days === 0) return "Due today";
   if (days > 0) return `Due in ${days} day${days === 1 ? "" : "s"}`;
@@ -88,6 +89,11 @@ export function PlanCardHeader({
 
 const sumAmounts = (rows: ApiPaymentMilestone[]) => rows.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
+/** The instalment in full. `amount` is only what is left of it when part was already paid. */
+const instalmentOf = (m: ApiPaymentMilestone) => Number(m.instalment_amount ?? m.amount) || 0;
+const paidOf = (m: ApiPaymentMilestone) =>
+  Number(m.amount_paid ?? (m.status === "paid" ? m.amount : 0)) || 0;
+
 type PaymentPlanCardProps = {
   booking: ApiBookingDetail;
   /** Card heading; defaults to "Payment Plan". */
@@ -120,9 +126,11 @@ export function PaymentPlanCard(props: PaymentPlanCardProps) {
   // Milestones are paid in order, so only the earliest unpaid one can be recorded.
   // Prefer the server's next_due, falling back to the first unpaid row if it's absent.
   const nextPayableId = nextDue?.milestone_id ?? schedule.find((m) => m.status !== "paid")?.id ?? null;
+  const nextPayableIndex = schedule.findIndex((m) => m.id === nextPayableId);
+  const nextDueText = schedule[nextPayableIndex]?.due_text;
 
-  const totalAmount = sumAmounts(schedule);
-  const received = booking.amount_received ?? sumAmounts(schedule.filter((m) => m.status === "paid"));
+  const totalAmount = schedule.reduce((sum, m) => sum + instalmentOf(m), 0);
+  const received = booking.amount_received ?? schedule.reduce((sum, m) => sum + paidOf(m), 0);
   // Submitted by the customer but not yet confirmed: still outstanding, shown separately
   // so the admin knows money is in flight and doesn't record it a second time.
   const awaitingConfirmation = sumAmounts(schedule.filter((m) => m.status === "pending_review"));
@@ -203,7 +211,9 @@ export function PaymentPlanCard(props: PaymentPlanCardProps) {
                   {nextDue.label} · {formatCurrency(nextDue.amount)}
                 </p>
                 <p className="text-xs text-text-muted">
-                  {[formatDate(nextDue.due_date), dueInText(nextDue.days_until_due)].filter(Boolean).join(" · ")}
+                  {nextDue.due_date
+                    ? [formatDate(nextDue.due_date), dueInText(nextDue.days_until_due)].filter(Boolean).join(" · ")
+                    : nextDueText || "Not dated yet"}
                 </p>
                 {nextDue.last_reminder_at && (
                   <p className="mt-0.5 text-xs text-text-soft">
@@ -251,14 +261,17 @@ export function PaymentPlanCard(props: PaymentPlanCardProps) {
               <Th>Milestone</Th>
               <Th>Due Date</Th>
               <Th>Amount</Th>
+              <Th>Paid</Th>
+              <Th>Balance</Th>
               <Th>Status</Th>
               <Th>Payment</Th>
               {!readOnly && <Th>Action</Th>}
             </THead>
             <tbody>
-              {schedule.map((row) => {
+              {schedule.map((row, index) => {
                 const isNext = row.id === nextPayableId;
                 const payable = isPayableNow(row.pay_enabled_from);
+                const nothingLeft = !(Number(row.amount) > 0);
                 return (
                   <Tr key={row.id}>
                     <Td>
@@ -268,12 +281,19 @@ export function PaymentPlanCard(props: PaymentPlanCardProps) {
                       )}
                     </Td>
                     <Td>{row.due_date ? formatDate(row.due_date) : row.due_text || "-"}</Td>
-                    <Td className="font-semibold">{formatCurrency(Number(row.amount) || 0)}</Td>
+                    <Td className="font-semibold">{formatCurrency(instalmentOf(row))}</Td>
+                    <Td>{formatCurrency(paidOf(row))}</Td>
+                    <Td className="font-semibold">{formatCurrency(Math.max(0, instalmentOf(row) - paidOf(row)))}</Td>
                     <Td>{row.status ? <StatusBadge status={row.status.toUpperCase()} /> : "-"}</Td>
                     <Td>
                       {row.status === "paid" ? (
                         <div className="text-xs">
-                          <p className="font-medium text-text">{formatDateTime(row.paid_on)}</p>
+                          <p className="font-medium text-text">
+                            {/* Money received before go-live has neither a date nor a payment of its own. */}
+                            {!row.paid_on && booking.is_offline && !row.paid_payment_id
+                              ? "Received offline"
+                              : formatDateTime(row.paid_on)}
+                          </p>
                           {row.paid_payment_id && <p className="text-text-muted">{row.paid_payment_id}</p>}
                         </div>
                       ) : (
@@ -292,7 +312,7 @@ export function PaymentPlanCard(props: PaymentPlanCardProps) {
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={!payable}
+                              disabled={!payable || nothingLeft}
                               onClick={() => openRecord(row)}
                             >
                               Record Payment
@@ -304,7 +324,10 @@ export function PaymentPlanCard(props: PaymentPlanCardProps) {
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-text-soft">After earlier installments</span>
+                          <span className="text-xs text-text-soft">
+                            {/* An instalment waiting on an event doesn't hold up the dated ones after it. */}
+                            {index < nextPayableIndex ? "Waiting for its event" : "After earlier installments"}
+                          </span>
                         )}
                       </Td>
                     )}

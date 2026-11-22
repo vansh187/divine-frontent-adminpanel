@@ -12,10 +12,13 @@ import {
   formatThousandths,
   needsBackendUpdate,
   parseDays,
+  planEdit,
+  planFormValues,
   planSubmitErrorMessage,
   toThousandths,
   totalThousandths,
   triggerFor,
+  validatePlanEdit,
   validatePlanForm,
   type InstalmentDraft,
   type PlanFormValues,
@@ -430,5 +433,68 @@ describe("backend contract: rejected plans are blocked before sending", () => {
     for (const key of c.frontendErrorKeys) expect(errors).toHaveProperty(key);
     // The backend test sends this payload directly, to prove the server refuses it too.
     expect(buildPlanPayload(values, existing)).toEqual(c.payload);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Editing an existing plan
+// ---------------------------------------------------------------------------
+
+describe("editing a plan", () => {
+  const stored = (overrides: Partial<ApiPaymentPlan> = {}): ApiPaymentPlan => ({
+    code: "PP9/10-33.333-56.667",
+    short_code: "PP9",
+    name: "Plan Nine",
+    description: null,
+    project_id: null,
+    version: 1,
+    is_active: true,
+    instalments: [
+      { seq: 1, label: "Booking", percent: 10, due_trigger: "booking", due_days: null, due_text: "", charge_head: null },
+      { seq: 2, label: "Middle", percent: 33.333, due_trigger: "custom", due_days: 5, due_from: "Plinth", due_text: "", charge_head: "ALL" },
+      { seq: 3, label: "Last", percent: 56.667, due_trigger: "possession", due_days: 0, due_text: "", charge_head: null },
+    ],
+    ...overrides,
+  });
+
+  it("finds no change in an untouched plan, whatever its instalments look like", () => {
+    expect(planEdit(stored(), planFormValues(stored()))).toEqual({ kind: "none" });
+    expect(validatePlanEdit(stored(), planFormValues(stored()), [stored()])).toEqual({});
+  });
+
+  it("ignores changes that store the same thing: spaces, 0 days for none, other wording of an event", () => {
+    const values = planFormValues(stored());
+    values.name = "  Plan Nine ";
+    values.instalments[0] = { ...values.instalments[0], dueDays: "0", countedFrom: "date of booking", percent: "10.0" };
+    expect(planEdit(stored(), values)).toEqual({ kind: "none" });
+  });
+
+  it.each([
+    ["short code", { shortCode: "PP9B" }],
+    ["project", { projectId: "suraksha-enclave" }],
+  ])("saves a changed %s as a new version", (_, patch) => {
+    expect(planEdit(stored(), { ...planFormValues(stored()), ...patch }).kind).toBe("version");
+  });
+
+  it("saves reordered instalments as a new version", () => {
+    const values = planFormValues(stored());
+    values.instalments = [values.instalments[0], values.instalments[2], values.instalments[1]];
+    expect(planEdit(stored(), values).kind).toBe("version");
+  });
+
+  it("checks every field of a new version, but only the name when only text changes", () => {
+    const short = stored({ short_code: null });
+    const values = { ...planFormValues(short), description: "New" };
+    expect(validatePlanEdit(short, values, [short])).toEqual({});
+    expect(Object.keys(validatePlanEdit(short, { ...values, name: "" }, [short]))).toEqual(["name"]);
+    expect(validatePlanEdit(short, { ...values, projectId: "x" }, [short])).toHaveProperty("shortCode");
+  });
+
+  it("lets an inactive plan be renamed, but not reactivated, while another active plan has its short code", () => {
+    const inactive = stored({ is_active: false });
+    const clash = [inactive, stored({ code: "PP9/NEW" })];
+    const renamed = { ...planFormValues(inactive), name: "Renamed" };
+    expect(validatePlanEdit(inactive, renamed, clash)).toEqual({});
+    expect(validatePlanEdit(inactive, { ...renamed, projectId: "suraksha-enclave" }, clash)).toHaveProperty("shortCode");
   });
 });

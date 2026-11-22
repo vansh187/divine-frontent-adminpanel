@@ -16,6 +16,7 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatCompactCurrency, formatCurrency, formatDate } from "../../lib/format";
+import { paymentMethodLabel } from "../../lib/paymentMethods";
 import { CsvActions } from "../csv/CsvActions";
 import { pagedRows } from "../csv/csvModel";
 import { revenueCsv } from "../csv/sections";
@@ -294,7 +295,7 @@ export function RevenuePage() {
                   <Td className="font-medium">{t.customer_name ?? t.customer_id}</Td>
                   <Td>{t.project_name ?? "—"}</Td>
                   <Td className="font-semibold">{formatCurrency(t.amount)}</Td>
-                  <Td>{t.method.toUpperCase()}</Td>
+                  <Td>{paymentMethodLabel(t.method) || "—"}</Td>
                   <Td>
                     <StatusBadge status={t.status.toUpperCase()} />
                   </Td>

@@ -19,23 +19,18 @@ import {
   type RefundStatus,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { formatCurrency, formatDateTime, titleCase } from "../../lib/format";
+import { formatCurrency, formatDateTime } from "../../lib/format";
+import { PAYMENT_METHOD_LABELS, paymentMethodLabel } from "../../lib/paymentMethods";
 import { CsvActions } from "../csv/CsvActions";
 import { pagedRows } from "../csv/csvModel";
 import { refundsCsv } from "../csv/sections";
 
 const PAGE_SIZE = 20;
 
-const METHOD_LABELS: Record<RefundMethod, string> = {
-  razorpay: "Razorpay",
-  zoho: "Zoho Payments",
-  cash: "Cash",
-  rtgs_neft: "RTGS/NEFT",
-};
+const METHODS: RefundMethod[] = ["razorpay", "zoho", "cash", "rtgs_neft", "cheque"];
 
-function methodLabel(method: RefundMethod) {
-  return METHOD_LABELS[method] ?? titleCase(method);
-}
+/** Paid back by hand, so an admin confirms it; the others are refunded (and retried) at the gateway. */
+const MANUAL_METHODS: RefundMethod[] = ["cash", "rtgs_neft", "cheque"];
 
 const STATUS_LABELS: Record<RefundStatus, string> = {
   processing: "Processing",
@@ -46,6 +41,15 @@ const STATUS_LABELS: Record<RefundStatus, string> = {
   bank_transfer_pending: "Bank Transfer Pending",
   bank_transfer_completed: "Bank Transfer Completed",
 };
+
+/** The server keeps a cheque refund in the bank-transfer statuses; name it as what it is. */
+function statusLabel(refund: Pick<ApiRefundListItem, "method" | "status">) {
+  if (refund.method === "cheque") {
+    if (refund.status === "bank_transfer_pending") return "Cheque Refund Pending";
+    if (refund.status === "bank_transfer_completed") return "Cheque Refund Completed";
+  }
+  return STATUS_LABELS[refund.status];
+}
 
 function detailErrorMessage(err: unknown) {
   if (err instanceof ApiError) {
@@ -109,7 +113,14 @@ export function RefundsPage() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setListError(err instanceof ApiError ? err.message : "Failed to load refunds.");
+        // A server that doesn't know a method yet refuses the filter itself.
+        setListError(
+          err instanceof ApiError && err.status === 422 && method !== "ALL"
+            ? `The server can't filter refunds by ${paymentMethodLabel(method)} yet. Choose "All methods" to see every refund.`
+            : err instanceof ApiError
+              ? err.message
+              : "Failed to load refunds."
+        );
       })
       .finally(() => {
         if (!cancelled) setListLoading(false);
@@ -219,10 +230,11 @@ export function RefundsPage() {
     }
   }
 
-  const canRetry = !!detail && !["cash", "rtgs_neft"].includes(detail.method) && detail.status === "processing";
+  const isManual = !!detail && MANUAL_METHODS.includes(detail.method);
+  const canRetry = !!detail && !isManual && detail.status === "processing";
   const canMarkCollected =
     detail &&
-    (["cash", "rtgs_neft"] as RefundMethod[]).includes(detail.method) &&
+    isManual &&
     (["cash_refund_pending", "bank_transfer_pending"] as RefundStatus[]).includes(detail.status);
 
   return (
@@ -275,9 +287,9 @@ export function RefundsPage() {
           }}
         >
           <option value="ALL">All methods</option>
-          {(Object.keys(METHOD_LABELS) as RefundMethod[]).map((m) => (
+          {METHODS.map((m) => (
             <option key={m} value={m}>
-              {METHOD_LABELS[m]}
+              {PAYMENT_METHOD_LABELS[m]}
             </option>
           ))}
         </Select>
@@ -319,9 +331,9 @@ export function RefundsPage() {
                     {r.project_name ?? "—"} {r.unit_number ? `· ${r.unit_number}` : ""}
                   </Td>
                   <Td className="font-semibold">{formatCurrency(r.amount)}</Td>
-                  <Td>{methodLabel(r.method)}</Td>
+                  <Td>{paymentMethodLabel(r.method)}</Td>
                   <Td>
-                    <StatusBadge status={r.status.toUpperCase()} label={STATUS_LABELS[r.status]} />
+                    <StatusBadge status={r.status.toUpperCase()} label={statusLabel(r)} />
                   </Td>
                   <Td className="text-text-muted">{formatDateTime(r.refund_initiated_date)}</Td>
                   <Td>
@@ -399,13 +411,13 @@ export function RefundsPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Method</span>
-                <span className="font-medium text-text">{methodLabel(detail.method)}</span>
+                <span className="font-medium text-text">{paymentMethodLabel(detail.method)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Status</span>
-                <StatusBadge status={detail.status.toUpperCase()} label={STATUS_LABELS[detail.status]} />
+                <StatusBadge status={detail.status.toUpperCase()} label={statusLabel(detail)} />
               </div>
-              {!(["cash", "rtgs_neft"] as RefundMethod[]).includes(detail.method) && (
+              {!isManual && (
                 <>
                   <div className="flex justify-between">
                     <span className="text-text-muted">Gateway Payment ID</span>

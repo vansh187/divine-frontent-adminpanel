@@ -8,7 +8,8 @@ import { Select } from "../../components/ui/Select";
 import { ApiError, listAdminPaymentPlans, setPaymentPlanActive, type ApiPaymentPlan } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { API_ERROR_MESSAGES, planApiErrorMessage } from "./planForm";
-import { PlanDetails, type PlotUsage } from "./PlanDetails";
+import { PlanDetails } from "./PlanDetails";
+import { currentPlanVersions, editPlanPath, planName, plotUsage, plotsText, type PlansPageState } from "./planList";
 import { CsvActions } from "../csv/CsvActions";
 import { paymentPlansCsv, planCsvRows } from "../csv/sections";
 
@@ -34,50 +35,6 @@ function applyToggle(plans: ApiPaymentPlan[], code: string, version: number, act
   });
 }
 
-/**
- * One entry per plan code: the active version, else the newest. The API returns
- * every version, newest first within each code. This is also the version the server
- * switches on or off for that code.
- */
-function currentPlanVersions(plans: ApiPaymentPlan[]): ApiPaymentPlan[] {
-  const byCode = new Map<string, ApiPaymentPlan>();
-  for (const plan of plans) {
-    const existing = byCode.get(plan.code);
-    if (!existing) {
-      byCode.set(plan.code, plan);
-    } else if (!existing.is_active && (plan.is_active || plan.version > existing.version)) {
-      byCode.set(plan.code, plan);
-    }
-  }
-  return [...byCode.values()].sort((a, b) => {
-    if (!!a.is_active !== !!b.is_active) return a.is_active ? -1 : 1;
-    const order = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-    return order !== 0 ? order : a.code.localeCompare(b.code);
-  });
-}
-
-/**
- * Plots currently on a plan code, over all its versions: customers keep the version they
- * booked on, so older versions still count. Null when the backend doesn't send counts yet.
- */
-function plotUsage(plans: ApiPaymentPlan[], code: string): PlotUsage | null {
-  const versions = plans.filter((p) => p.code === code && typeof p.plots_count === "number");
-  if (versions.length === 0) return null;
-  const byVersion = versions
-    .map((p) => ({ version: p.version, count: p.plots_count as number }))
-    .sort((a, b) => a.version - b.version);
-  return { total: byVersion.reduce((sum, v) => sum + v.count, 0), byVersion };
-}
-
-function plotsText(count: number) {
-  return `${count} plot${count === 1 ? "" : "s"}`;
-}
-
-/** "PP1 — Flexi Plan", falling back to the plan code. */
-function planName(plan: ApiPaymentPlan) {
-  return [plan.short_code, plan.name].filter(Boolean).join(" — ") || plan.code;
-}
-
 function planOptionLabel(plan: ApiPaymentPlan) {
   return plan.is_active ? planName(plan) : `${planName(plan)} (Inactive)`;
 }
@@ -95,12 +52,11 @@ export function PaymentPlansPage() {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  // Read once: the "created" banner belongs to this visit only. The history entry's
-  // state is cleared below so a reload or Back/Forward doesn't show it again.
-  const [createdCode, setCreatedCode] = useState<string | null>(
-    () => (location.state as { createdCode?: string } | null)?.createdCode ?? null
-  );
-  const [selectedCode, setSelectedCode] = useState<string>(createdCode ?? "");
+  // Read once: the "created" / "updated" banner belongs to this visit only. The history
+  // entry's state is cleared below so a reload or Back/Forward doesn't show it again.
+  const [arrival] = useState(() => location.state as PlansPageState | null);
+  const [createdCode, setCreatedCode] = useState<string | null>(arrival?.createdCode ?? null);
+  const [selectedCode, setSelectedCode] = useState<string>(arrival?.createdCode ?? arrival?.edited?.code ?? "");
 
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
@@ -166,7 +122,8 @@ export function PaymentPlansPage() {
   const [toggleRequest, setToggleRequest] = useState<{ code: string; activate: boolean } | null>(null);
   const [toggling, setToggling] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
-  const [toggleNotice, setToggleNotice] = useState<string | null>(null);
+  // What the admin just did: edited a plan (on the edit page) or switched one on or off.
+  const [notice, setNotice] = useState<string | null>(arrival?.edited?.notice ?? null);
   const togglePlan = toggleRequest ? (current.find((p) => p.code === toggleRequest.code) ?? null) : null;
   // The list changed while the dialog was open (e.g. another admin already did this).
   const alreadyDone = !!toggleRequest && !!togglePlan && !!togglePlan.is_active === toggleRequest.activate;
@@ -175,7 +132,7 @@ export function PaymentPlansPage() {
 
   function openToggle(plan: ApiPaymentPlan) {
     setToggleError(null);
-    setToggleNotice(null);
+    setNotice(null);
     setToggleRequest({ code: plan.code, activate: !plan.is_active });
   }
 
@@ -195,7 +152,7 @@ export function PaymentPlansPage() {
       setSelectedCode(code);
       setToggleRequest(null);
       setCreatedCode(null);
-      setToggleNotice(
+      setNotice(
         activate
           ? `${name} is active again. Customers will see it in the booking dropdown within a minute.`
           : `${name} is now inactive. New customers can't choose it; customers already on this plan are not affected.`
@@ -240,9 +197,9 @@ export function PaymentPlansPage() {
         </div>
       )}
 
-      {toggleNotice && (
+      {notice && (
         <div role="status" className="mb-4 rounded-xl border border-success/30 bg-success-bg p-3 text-sm text-success">
-          {toggleNotice}
+          {notice}
         </div>
       )}
 
@@ -265,7 +222,7 @@ export function PaymentPlansPage() {
                 value={selected?.code ?? ""}
                 onChange={(e) => {
                   setSelectedCode(e.target.value);
-                  setToggleNotice(null);
+                  setNotice(null);
                 }}
               >
                 {current.map((plan) => (
@@ -274,6 +231,11 @@ export function PaymentPlansPage() {
                   </option>
                 ))}
               </Select>
+              {selected && (
+                <Button variant="outline" onClick={() => navigate(editPlanPath(selected.code))}>
+                  Edit Plan
+                </Button>
+              )}
               {selected && (
                 <Button variant={selected.is_active ? "outline" : "secondary"} onClick={() => openToggle(selected)}>
                   {selected.is_active ? "Deactivate Plan" : "Activate Plan"}

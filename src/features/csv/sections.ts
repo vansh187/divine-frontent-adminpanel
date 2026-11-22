@@ -19,12 +19,11 @@ import { titleCase } from "../../lib/format";
 import { inventoryStatusLabel } from "../inventory/inventoryLabels";
 import { customerSourceLabel } from "../customers/customerSource";
 import {
-  BOOKING_DATE,
   DESCRIPTION_MAX,
   MAX_INSTALMENTS,
-  POSSESSION_DATE,
   blankInstalment,
   buildPlanPayload,
+  countedFromText,
   validatePlanForm,
   type PlanFormValues,
 } from "../paymentPlans/planForm";
@@ -315,13 +314,6 @@ export function planCsvRows(current: ApiPaymentPlan[], all: ApiPaymentPlan[]): P
   });
 }
 
-function countedFrom(i: ApiPlanInstalment | null) {
-  if (!i) return "";
-  if (i.due_trigger === "booking") return BOOKING_DATE;
-  if (i.due_trigger === "possession") return POSSESSION_DATE;
-  return i.due_from ?? i.due_text;
-}
-
 const CHARGES = ["PLC", "IFMS", "CAM"];
 
 /** "PLC + IFMS", "ifms+plc", "All (PLC + IFMS + CAM)" -> a charge head; null if not one. */
@@ -476,7 +468,7 @@ export function paymentPlansCsv(existing: ApiPaymentPlan[]): CsvSection<PlanCsvR
       { header: "Plots Using Plan", value: (r) => r.plots },
       planColumn(H.label, "label", (r) => r.instalment?.label, true),
       planColumn(H.percent, "percent", (r) => r.instalment?.percent, true),
-      planColumn(H.countedFrom, "due_from", (r) => countedFrom(r.instalment), true),
+      planColumn(H.countedFrom, "due_from", (r) => (r.instalment ? countedFromText(r.instalment) : ""), true),
       planColumn(H.dueDays, "due_days", (r) => r.instalment?.due_days ?? (r.instalment ? 0 : null)),
       planColumn(H.charges, "charge_head", (r) => r.instalment?.charge_head),
       { header: "Due Wording", value: (r) => r.instalment?.due_text },

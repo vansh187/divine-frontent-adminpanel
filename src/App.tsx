@@ -21,6 +21,7 @@ import { NotFoundPage } from "./features/misc/NotFoundPage";
 import { AdminApprovalsPage } from "./features/approvals/AdminApprovalsPage";
 import { PaymentPlansPage } from "./features/paymentPlans/PaymentPlansPage";
 import { NewPaymentPlanPage } from "./features/paymentPlans/NewPaymentPlanPage";
+import { EditPaymentPlanPage } from "./features/paymentPlans/EditPaymentPlanPage";
 import { InventoryPage } from "./features/inventory/InventoryPage";
 
 function App() {
@@ -52,6 +53,7 @@ function App() {
         <Route path="bookings/:id" element={<BookingDetailPage />} />
         <Route path="payment-plans" element={<PaymentPlansPage />} />
         <Route path="payment-plans/new" element={<NewPaymentPlanPage />} />
+        <Route path="payment-plans/edit" element={<EditPaymentPlanPage />} />
         <Route path="refunds" element={<RefundsPage />} />
         <Route path="revenue" element={<RevenuePage />} />
         <Route path="profile" element={<AdminProfilePage />} />

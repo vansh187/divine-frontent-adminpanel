@@ -1157,6 +1157,26 @@ export interface PaymentPlanCreatePayload {
   instalments: PlanInstalmentInput[];
 }
 
+/** A new version of an existing plan. Fields left out are copied from its newest version. */
+export interface PaymentPlanVersionPayload {
+  code: string;
+  short_code: string;
+  name: string;
+  /** "" clears it (null or left out would keep the old text). */
+  description: string;
+  /** "" = all projects (null or left out would keep the old project). */
+  project_id: string;
+  sort_order?: number;
+  instalments: PlanInstalmentInput[];
+}
+
+/** Text of a plan's current version. Only the fields sent change; "" clears the description. */
+export interface PaymentPlanDetailsPayload {
+  code: string;
+  name?: string;
+  description?: string;
+}
+
 /** Every plan version, active and retired (newest version first per code). */
 export function listAdminPaymentPlans(
   accessToken: string,
@@ -1183,6 +1203,31 @@ export function setPaymentPlanActive(accessToken: string, code: string, isActive
   return authRequest<ApiPaymentPlan>("/admin/payment-plans", accessToken, {
     method: "PATCH",
     body: JSON.stringify({ code, is_active: isActive }),
+  });
+}
+
+/** Changes the text of a plan's current version (the active one, else the newest). */
+export function updatePaymentPlanDetails(
+  accessToken: string,
+  payload: PaymentPlanDetailsPayload
+): Promise<ApiPaymentPlan> {
+  return authRequest<ApiPaymentPlan>("/admin/payment-plans", accessToken, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Saves a changed plan as its next version and makes that version active, retiring the
+ * others. Customers who already booked keep the version they paid against.
+ */
+export function createPaymentPlanVersion(
+  accessToken: string,
+  payload: PaymentPlanVersionPayload
+): Promise<ApiPaymentPlan> {
+  return authRequest<ApiPaymentPlan>("/admin/payment-plans/versions", accessToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

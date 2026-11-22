@@ -1,9 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type ApiPaymentPlan } from "../../lib/api";
 import { PaymentPlansPage } from "./PaymentPlansPage";
+import type { PlansPageState } from "./planList";
 
 const listAdminPaymentPlans = vi.fn();
 const setPaymentPlanActive = vi.fn();
@@ -53,15 +54,22 @@ function fakeServer(initial: ApiPaymentPlan[]) {
   });
 }
 
-function page(state?: { createdCode: string }) {
+function EditStub() {
+  return <p>Editing {new URLSearchParams(useLocation().search).get("code")}</p>;
+}
+
+function page(state?: PlansPageState) {
   return (
     <MemoryRouter initialEntries={[{ pathname: "/admin/payment-plans", state }]}>
-      <PaymentPlansPage />
+      <Routes>
+        <Route path="/admin/payment-plans" element={<PaymentPlansPage />} />
+        <Route path="/admin/payment-plans/edit" element={<EditStub />} />
+      </Routes>
     </MemoryRouter>
   );
 }
 
-async function renderPage(state?: { createdCode: string }) {
+async function renderPage(state?: PlansPageState) {
   const user = userEvent.setup({ delay: null });
   const view = render(page(state));
   await screen.findByLabelText("Current payment plan");
@@ -318,5 +326,31 @@ describe("PaymentPlansPage number of plots", () => {
     listAdminPaymentPlans.mockResolvedValueOnce({ count: 1, plans: [plan({ plots_count: 3 })] });
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
     await waitFor(() => expect(plotsValue()).toHaveTextContent(/^3$/));
+  });
+});
+
+describe("PaymentPlansPage edit", () => {
+  beforeEach(() => {
+    listAdminPaymentPlans.mockReset();
+    setPaymentPlanActive.mockReset();
+    auth.accessToken = "token";
+  });
+
+  it("opens the selected plan for editing, inactive ones included", async () => {
+    fakeServer([plan({}), plan({ code: "PP2/CLP-10", short_code: "PP2", sort_order: 2, is_active: false })]);
+    const { user } = await renderPage();
+    await user.selectOptions(select(), "PP2/CLP-10");
+    await user.click(screen.getByRole("button", { name: "Edit Plan" }));
+    expect(screen.getByText("Editing PP2/CLP-10")).toBeInTheDocument();
+  });
+
+  it("selects the plan that was just edited and says what happened", async () => {
+    fakeServer([plan({}), plan({ code: "PP2/CLP", short_code: "PP2", sort_order: 2 })]);
+    const { user } = await renderPage({ edited: { code: "PP2/CLP", notice: "PP2 was updated." } });
+    expect(select()).toHaveValue("PP2/CLP");
+    expect(screen.getByRole("status")).toHaveTextContent("PP2 was updated.");
+
+    await user.selectOptions(select(), "PP1/FPP");
+    expect(screen.queryByText("PP2 was updated.")).not.toBeInTheDocument();
   });
 });

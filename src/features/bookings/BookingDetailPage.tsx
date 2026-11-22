@@ -256,6 +256,11 @@ function BookingDetail({ id }: { id: string }) {
   // The version a decision is made on: the one on screen when its dialog opened.
   const decisionVersion = useRef(0);
   const submittingDecision = useRef(false);
+  // The version a verification was saved as although the booking couldn't be read back: until that
+  // version shows, what is on screen is out of date and verifying must not be offered again.
+  const savedVersion = useRef(0);
+  const [unseenVersion, setUnseenVersion] = useState(0);
+  const [reloading, setReloading] = useState(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -303,7 +308,8 @@ function BookingDetail({ id }: { id: string }) {
       const before = shown.current;
       if (!mounted.current || at < shownAt.current || (before && latest.version < before.version)) return;
       display(latest, at);
-      if (before && latest.version !== before.version && !explained) warnChanged();
+      // The version our own saved verification made is no news.
+      if (before && latest.version !== before.version && latest.version !== savedVersion.current && !explained) warnChanged();
     },
     [display, warnChanged]
   );
@@ -413,6 +419,42 @@ function BookingDetail({ id }: { id: string }) {
     if (!error) setActionNotice("KYC is already verified.");
   }
 
+  /** A saved verification, going by the booking read back: its KYC status is always the response's. */
+  function showVerified(latest: ApiBookingDetail) {
+    if (latest.kyc_status === "verified") setActionNotice(DECISIONS.verifyKyc.done);
+    else setWarning(CHANGED_WARNING); // A document was replaced right after.
+  }
+
+  /** KYC was verified but the server couldn't return the booking: reads it, and never sends the decision again. */
+  async function readBackVerified(token: string) {
+    savedVersion.current = decisionVersion.current + 1;
+    let latest: ApiBookingDetail | null = null;
+    try {
+      latest = await refreshInPlace(token, true);
+    } catch {
+      // Shown below, with a button to reload.
+    }
+    if (!mounted.current) return;
+    setModal(null);
+    setNote("");
+    if (latest && latest.version >= savedVersion.current) showVerified(latest);
+    else setUnseenVersion(savedVersion.current);
+  }
+
+  async function reloadBooking() {
+    if (!accessToken || reloading) return;
+    setReloading(true);
+    try {
+      const latest = await refreshInPlace(accessToken);
+      if (!mounted.current) return;
+      if (outOfDate && latest.version >= savedVersion.current) showVerified(latest);
+    } catch {
+      if (mounted.current && !outOfDate) setWarning(RELOAD_FAILED_WARNING);
+    } finally {
+      setReloading(false);
+    }
+  }
+
   async function submitDecision(kind: DecisionKind) {
     if (!accessToken || !booking || submittingDecision.current) return;
     submittingDecision.current = true;
@@ -428,12 +470,17 @@ function BookingDetail({ id }: { id: string }) {
       showSaved(result, booking, 1);
       setModal(null);
       setNote("");
-      if (kind === "verifyKyc" && result.kyc_status !== "verified") setWarning(CHANGED_WARNING);
+      if (kind === "verifyKyc") showVerified(result);
       else setActionNotice(DECISIONS[kind].done);
     } catch (err) {
       if (!mounted.current) return;
       if (kind === "verifyKyc" && err instanceof ApiError && err.status === 409) {
         await explainRefusedVerification(accessToken, err);
+      } else if (kind === "verifyKyc" && err instanceof ApiError && err.code === "kyc_verified_refresh_failed") {
+        await readBackVerified(accessToken);
+      } else if (kind === "verifyKyc" && err instanceof ApiError && err.code === "kyc_documents_unavailable") {
+        // Nothing changed: the dialog stays open, so Confirm is the retry.
+        setActionError("The documents can't be opened right now, so KYC was not verified. Please try again in a moment.");
       } else if (kind === "verifyKyc" && err instanceof ApiError && err.status === 403) {
         setActionError("Your admin account is not approved, so it can't verify KYC.");
       } else if (
@@ -535,7 +582,8 @@ function BookingDetail({ id }: { id: string }) {
       );
       if (!mounted.current) return;
       showSaved(updated, booking, 1);
-      finishKycUpload(documentType, updated, wasVerified);
+      // Not the reply when a newer booking is already on screen: its KYC status would be an old one.
+      finishKycUpload(documentType, shown.current ?? updated, wasVerified);
     } catch (err) {
       if (!mounted.current) return;
       if (err instanceof ApiError && err.code === "document_saved_refresh_failed") {
@@ -620,15 +668,27 @@ function BookingDetail({ id }: { id: string }) {
   const kycVerified = booking?.kyc_status === "verified";
   // Only a backend that verifies KYC here also puts it back to pending when a document is replaced.
   const replacingReopensKyc = verifiesKyc && kycVerified;
-  const existingCustomerText = kycVerified
-    ? "Existing customer. KYC is verified."
-    : verifiesKyc && booking?.can_verify_kyc
-      ? "Existing customer. All KYC documents are uploaded: review each one, then verify KYC."
-      : allDocumentsUploaded
-        ? "Existing customer. All KYC documents are uploaded."
-        : canUpload
-          ? "Existing customer. Upload their KYC documents below."
-          : null;
+  // Verified on the server, but the booking on screen is still the one from before.
+  const outOfDate = !!booking && booking.version < unseenVersion;
+  const unopenable = REQUIRED_KYC_DOCUMENT_TYPES.some((type) => {
+    const doc = documentsByType.get(type);
+    return doc?.uploaded && !doc.preview_url;
+  });
+  // All the documents are there, but a file nobody can open can't have been checked.
+  const cannotOpenDocuments = verifiesKyc && !kycVerified && !booking?.can_verify_kyc && allDocumentsUploaded && unopenable;
+  const existingCustomerText = outOfDate
+    ? null
+    : kycVerified
+      ? "Existing customer. KYC is verified."
+      : cannotOpenDocuments
+        ? "Existing customer. Some documents can't be opened right now, so KYC can't be verified yet."
+        : verifiesKyc && booking?.can_verify_kyc
+          ? "Existing customer. All KYC documents are uploaded: review each one, then verify KYC."
+          : allDocumentsUploaded
+            ? "Existing customer. All KYC documents are uploaded."
+            : canUpload
+              ? "Existing customer. Upload their KYC documents below."
+              : null;
   // An existing customer's plot was never up for review here, so nothing about it was "decided".
   const headerText = isReviewable
     ? allDocumentsUploaded
@@ -669,6 +729,20 @@ function BookingDetail({ id }: { id: string }) {
               {actionError}
             </div>
           )}
+          {outOfDate && (
+            <div
+              role="status"
+              className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/30 bg-warning-bg p-3 text-sm text-warning"
+            >
+              <span className="min-w-0 flex-1">
+                KYC was verified, but the booking could not be reloaded, so the details below are from before. There is
+                no need to verify it again.
+              </span>
+              <Button variant="outline" size="sm" disabled={reloading} onClick={() => void reloadBooking()}>
+                {reloading ? "Reloading..." : "Reload booking"}
+              </Button>
+            </div>
+          )}
           {warning && (
             <div role="status" className="mb-4 rounded-xl border border-warning/30 bg-warning-bg p-3 text-sm text-warning">
               {warning}
@@ -690,6 +764,11 @@ function BookingDetail({ id }: { id: string }) {
                 {bookingApplicant(booking)} · {booking.project_name} · Unit {booking.unit_number}
               </p>
               {headerText && <p className="mt-1 text-xs font-medium text-gold-dark">{headerText}</p>}
+              {cannotOpenDocuments && !outOfDate && (
+                <Button variant="outline" size="sm" className="mt-2" disabled={reloading} onClick={() => void reloadBooking()}>
+                  {reloading ? "Reloading..." : "Reload booking"}
+                </Button>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {booking.status === "booked" && !booking.is_offline && (
@@ -702,8 +781,14 @@ function BookingDetail({ id }: { id: string }) {
                   <Button
                     size="sm"
                     // A document being uploaded is one nobody has checked yet.
-                    disabled={!booking.can_verify_kyc || uploadingKycType !== null}
-                    title={allDocumentsUploaded ? undefined : "Upload all 5 KYC documents first"}
+                    disabled={!booking.can_verify_kyc || uploadingKycType !== null || outOfDate}
+                    title={
+                      !allDocumentsUploaded
+                        ? "Upload all 5 KYC documents first"
+                        : cannotOpenDocuments
+                          ? "Some documents can't be opened right now"
+                          : undefined
+                    }
                     onClick={() => openModal("verifyKyc")}
                   >
                     Verify KYC

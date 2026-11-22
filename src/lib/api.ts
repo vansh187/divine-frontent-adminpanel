@@ -717,7 +717,8 @@ export interface ApiBookingDetail {
   can_upload_documents?: boolean;
   /**
    * Whether verifyBookingKyc would be accepted right now: an offline booking with all its
-   * documents uploaded, not verified yet. Absent on backends without that endpoint.
+   * documents uploaded and able to be opened (preview_url), not verified yet. Absent on
+   * backends without that endpoint.
    */
   can_verify_kyc?: boolean;
   /** The plot's own applicant (buyers sharing an email share one account). */
@@ -822,7 +823,9 @@ export function approveBooking(
 
 /**
  * Marks an existing (offline) customer's KYC as verified. Changes nothing else and sends no
- * email. Replacing a document afterwards puts it back to pending.
+ * email. Replacing a document afterwards puts it back to pending, so the KYC status is always
+ * the one in the latest response. 503 kyc_documents_unavailable: nothing changed, try again.
+ * 503 kyc_verified_refresh_failed: it IS verified; reload the booking, never send it again.
  */
 export function verifyBookingKyc(
   accessToken: string,

@@ -618,6 +618,248 @@ describe("BookingDetailPage - verifying an existing customer's KYC", () => {
   });
 });
 
+describe("BookingDetailPage - KYC verified, or not, when the server is having trouble", () => {
+  const ready = (o: Partial<ApiBookingDetail> = {}) =>
+    offline({ version: 6, documents: documents(TYPES), can_verify_kyc: true, ...o });
+  const verified = (o: Partial<ApiBookingDetail> = {}) =>
+    ready({ version: 7, kyc_status: "verified", can_verify_kyc: false, ...o });
+  const verifyButton = () => screen.queryByRole("button", { name: "Verify KYC" });
+  const confirm = () => screen.getByRole("button", { name: "Confirm Verified" });
+  const reload = () => screen.getByRole("button", { name: "Reload booking" });
+  const kycBadge = () => valueOf("KYC Status")?.textContent;
+  const SAVED = /KYC was verified, but the booking could not be reloaded/;
+  const saved = () => refuse(503, "kyc_verified_refresh_failed", "KYC was verified, but the booking could not be reloaded.");
+
+  async function verify(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(verifyButton()!);
+    await user.click(confirm());
+  }
+
+  it("reloads a verification that was saved, and never sends it again", async () => {
+    const user = userEvent.setup();
+    await show(ready());
+    verifyBookingKyc.mockRejectedValue(saved());
+    getBooking.mockResolvedValue(verified());
+    await verify(user);
+    expect(await screen.findByText("KYC verified.")).toBeInTheDocument();
+    expect(kycBadge()).toBe("Verified");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(SAVED)).not.toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    expect(verifyBookingKyc).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't offer to verify again when the reload fails too, until a reload works", async () => {
+    const user = userEvent.setup();
+    await show(ready());
+    verifyBookingKyc.mockRejectedValue(saved());
+    getBooking.mockRejectedValue(new ApiError(500, "down"));
+    await verify(user);
+    expect(await screen.findByText(SAVED)).toHaveTextContent("no need to verify it again");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(verifyButton()).toBeDisabled();
+    // The badge is the last response's, never guessed.
+    expect(kycBadge()).toBe("Pending");
+    expect(screen.queryByText(/review each one, then verify KYC/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Something went wrong|not verified/)).not.toBeInTheDocument();
+
+    await user.click(reload());
+    expect(await screen.findByText(SAVED)).toBeInTheDocument();
+    expect(reload()).toBeEnabled();
+    getBooking.mockResolvedValue(verified());
+    await user.click(reload());
+    expect(await screen.findByText("KYC verified.")).toBeInTheDocument();
+    expect(kycBadge()).toBe("Verified");
+    expect(screen.queryByText(SAVED)).not.toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    expect(verifyBookingKyc).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't believe a reload from before the verification (a lagging server)", async () => {
+    const user = userEvent.setup();
+    await show(ready());
+    verifyBookingKyc.mockRejectedValue(saved());
+    getBooking.mockResolvedValue(ready());
+    await verify(user);
+    expect(await screen.findByText(SAVED)).toBeInTheDocument();
+    expect(verifyButton()).toBeDisabled();
+    await user.click(reload());
+    await waitFor(() => expect(reload()).toBeEnabled());
+    expect(verifyButton()).toBeDisabled();
+    expect(screen.queryByText("KYC verified.")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["at once", true],
+    ["with the button", false],
+  ])("shows Pending, and allows verifying again, when a document was replaced before it was read back (%s)", async (_, atOnce) => {
+    const user = userEvent.setup();
+    await show(ready());
+    verifyBookingKyc.mockRejectedValueOnce(saved());
+    if (!atOnce) getBooking.mockRejectedValueOnce(new ApiError(500, "down"));
+    getBooking.mockResolvedValue(ready({ version: 8 }));
+    await verify(user);
+    if (!atOnce) await user.click(await screen.findByRole("button", { name: "Reload booking" }));
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(kycBadge()).toBe("Pending");
+    expect(screen.queryByText("KYC verified.")).not.toBeInTheDocument();
+    expect(screen.queryByText(SAVED)).not.toBeInTheDocument();
+
+    verifyBookingKyc.mockResolvedValue(verified({ version: 9 }));
+    await verify(user);
+    expect(await screen.findByText("KYC verified.")).toBeInTheDocument();
+    expect(verifyBookingKyc.mock.calls[1][2]).toMatchObject({ version: 8 });
+  });
+
+  it.each(["a token refresh", "a preview"])("catches up quietly through %s", async (how) => {
+    const user = userEvent.setup();
+    popup();
+    const { refreshToken } = await show(ready());
+    verifyBookingKyc.mockRejectedValue(saved());
+    getBooking.mockRejectedValueOnce(new ApiError(500, "down"));
+    await verify(user);
+    await screen.findByText(SAVED);
+    getBooking.mockResolvedValue(verified());
+    if (how === "a preview") await user.click(previewButton("PAN Card"));
+    else refreshToken();
+    await waitFor(() => expect(screen.queryByText(SAVED)).not.toBeInTheDocument());
+    expect(await screen.findByText("Existing customer. KYC is verified.")).toBeInTheDocument();
+    expect(kycBadge()).toBe("Verified");
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("drops a saved verification of a booking the admin has left", async () => {
+    const user = userEvent.setup();
+    const answer = later<ApiBookingDetail>();
+    verifyBookingKyc.mockReturnValue(answer.promise);
+    await show(ready());
+    await verify(user);
+    getBooking.mockResolvedValue(ready({ id: "BKG-2", version: 1 }));
+    await user.click(screen.getByRole("link", { name: "Next booking" }));
+    await screen.findByRole("heading", { name: "BKG-2" });
+    await answer.fail(saved());
+    expect(screen.queryByText(SAVED)).not.toBeInTheDocument();
+    expect(verifyButton()).toBeEnabled();
+    expect(kycBadge()).toBe("Pending");
+  });
+
+  it("keeps the dialog open to try again when the documents can't be opened", async () => {
+    const user = userEvent.setup();
+    await show(ready());
+    verifyBookingKyc.mockRejectedValueOnce(refuse(503, "kyc_documents_unavailable", "x"));
+    verifyBookingKyc.mockResolvedValueOnce(verified());
+    await user.click(verifyButton()!);
+    await user.type(screen.getByLabelText("Note for the record (optional)"), "seen");
+    await user.click(confirm());
+    expect(await screen.findByRole("alert")).toHaveTextContent("can't be opened right now, so KYC was not verified. Please try again");
+    expect(kycBadge()).toBe("Pending");
+    expect(screen.getByLabelText("Note for the record (optional)")).toHaveValue("seen");
+    expect(getBooking).toHaveBeenCalledTimes(1);
+
+    await user.click(confirm());
+    expect(await screen.findByText("KYC verified.")).toBeInTheDocument();
+    expect(verifyBookingKyc.mock.calls[1]).toEqual(verifyBookingKyc.mock.calls[0]);
+    expect(screen.queryByText(/can't be opened right now/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["one", ["pan_card"]],
+    ["all", [...TYPES]],
+  ])("says why KYC can't be verified while %s of the documents can't be opened, and reloads", async (_, closed) => {
+    const user = userEvent.setup();
+    const unopenable = documents(TYPES).map((d) => (closed.includes(d.document_type) ? { ...d, preview_url: null } : d));
+    await show(ready({ documents: unopenable, can_verify_kyc: false }));
+    expect(screen.getByText(/Some documents can't be opened right now, so KYC can't be verified yet/)).toBeInTheDocument();
+    expect(verifyButton()).toBeDisabled();
+    expect(verifyButton()).toHaveAttribute("title", "Some documents can't be opened right now");
+
+    getBooking.mockRejectedValueOnce(new ApiError(500, "down"));
+    await user.click(reload());
+    expect(await screen.findByText(/latest details of this booking could not be loaded/)).toBeInTheDocument();
+    getBooking.mockResolvedValue(ready());
+    await user.click(reload());
+    expect(await screen.findByText(/review each one, then verify KYC/)).toBeInTheDocument();
+    expect(verifyButton()).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Reload booking" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("warns when that reload shows the booking changed", async () => {
+    const user = userEvent.setup();
+    await show(ready({ documents: documents(TYPES).map((d) => ({ ...d, preview_url: null })), can_verify_kyc: false }));
+    getBooking.mockResolvedValue(ready({ version: 9 }));
+    await user.click(reload());
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it.each<[string, Partial<ApiBookingDetail>]>([
+    ["KYC is verified", { kyc_status: "verified", can_verify_kyc: false }],
+    ["the backend can't verify KYC here", { can_verify_kyc: undefined }],
+    ["documents are missing", { can_verify_kyc: false, documents: documents(["pan_card"]).map((d) => ({ ...d, preview_url: null })) }],
+  ])("doesn't bring up unopenable documents when %s", async (_, overrides) => {
+    await show(ready({ documents: documents(TYPES).map((d) => ({ ...d, preview_url: null })), ...overrides }));
+    expect(screen.queryByText(/can't be opened right now/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload booking" })).not.toBeInTheDocument();
+  });
+});
+
+describe("BookingDetailPage - the KYC badge is always the response's", () => {
+  const kycBadges = () => [valueOf("KYC Status")?.textContent, screen.getByRole("heading", { name: "KYC Document Checklist" }).nextElementSibling?.textContent];
+  const state = (version: number, kyc_status: ApiBookingDetail["kyc_status"]) =>
+    offline({ version, kyc_status, documents: documents(TYPES), can_verify_kyc: kyc_status !== "verified" });
+
+  it.each<[string, ApiBookingDetail["kyc_status"], string]>([
+    ["put back to pending", "pending", "Pending"],
+    ["still verified (verified again before a repeated upload's reply)", "verified", "Verified"],
+    ["any other status", "needs_resubmission", "Needs Resubmission"],
+  ])("after replacing a document of a verified booking: %s", async (_, after, badge) => {
+    const user = userEvent.setup();
+    await show(state(7, "verified"));
+    expect(kycBadges()).toEqual(["Verified", "Verified"]);
+    uploadBookingDocument.mockResolvedValue(state(8, after));
+    await chooseAndUpload(user, "PAN Card");
+    await screen.findByText(/^PAN Card uploaded\./);
+    expect(kycBadges()).toEqual([badge, badge]);
+    expect(screen.queryAllByText(/KYC is back to Pending/)).toHaveLength(after === "verified" ? 0 : 1);
+  });
+
+  it("after a saved replacement whose reply was lost", async () => {
+    const user = userEvent.setup();
+    await show(state(7, "verified"));
+    uploadBookingDocument.mockRejectedValue(refuse(503, "document_saved_refresh_failed"));
+    getBooking.mockResolvedValue(state(8, "pending"));
+    await chooseAndUpload(user, "PAN Card");
+    expect(await screen.findByText(/KYC is back to Pending/)).toBeInTheDocument();
+    expect(kycBadges()).toEqual(["Pending", "Pending"]);
+  });
+
+  it("keeps the last response's while a replacement fails", async () => {
+    const user = userEvent.setup();
+    await show(state(7, "verified"));
+    uploadBookingDocument.mockRejectedValue(refuse(503, "document_storage_unavailable"));
+    await chooseAndUpload(user, "PAN Card");
+    await screen.findByRole("alert");
+    expect(kycBadges()).toEqual(["Verified", "Verified"]);
+  });
+
+  it("goes by the newer booking when an upload's reply arrives behind it", async () => {
+    const user = userEvent.setup();
+    popup();
+    await show(state(7, "verified"));
+    const upload = later<ApiBookingDetail>();
+    uploadBookingDocument.mockReturnValue(upload.promise);
+    await chooseAndUpload(user, "PAN Card");
+    getBooking.mockResolvedValue(state(9, "verified")); // replaced, then verified again by someone else
+    await user.click(previewButton("Cancelled Cheque"));
+    await screen.findByText("v9");
+    await upload.reply(state(8, "pending"));
+    expect(await screen.findByText("PAN Card uploaded.")).toBeInTheDocument();
+    expect(kycBadges()).toEqual(["Verified", "Verified"]);
+    expect(screen.queryByText(/KYC is back to Pending/)).not.toBeInTheDocument();
+  });
+});
+
 describe("BookingDetailPage - whose booking it is", () => {
   it("names the applicant everywhere and marks the contact details as the account holder's", async () => {
     await show(offline());

@@ -13,13 +13,35 @@ import {
   type BookingStatus,
   type KycStatus,
 } from "../../lib/api";
+import { bookingApplicant } from "../../lib/applicants";
 import { useAuth } from "../../lib/auth";
-import { formatCurrency } from "../../lib/format";
+import { formatCurrency, formatDate } from "../../lib/format";
 import { CsvActions } from "../csv/CsvActions";
 import { pagedRows } from "../csv/csvModel";
 import { bookingsCsv } from "../csv/sections";
+import { nextPaymentDue, receivedAmount } from "./bookingMoney";
+import { dueInText } from "./PaymentPlanCard";
 
 const PAGE_SIZE = 20;
+const COLUMNS = 9;
+
+/** What the customer pays next and when, or that nothing is left. */
+function NextPayment({ booking }: { booking: ApiBookingListItem }) {
+  const next = booking.next_payment;
+  if (!next) return <span className="text-text-muted">{booking.outstanding === 0 ? "Fully paid" : "—"}</span>;
+  return (
+    <div className="space-y-1">
+      <p className="font-semibold text-text">{formatCurrency(next.amount)}</p>
+      <p className="text-xs text-text-muted">
+        {next.due_date ? formatDate(next.due_date) : nextPaymentDue(booking)}
+        {next.due_date && dueInText(next.days_until_due) ? ` · ${dueInText(next.days_until_due)}` : ""}
+      </p>
+      <StatusBadge status={next.status.toUpperCase()} />
+    </div>
+  );
+}
+
+const money = (value: number | null | undefined) => (value == null ? "—" : formatCurrency(value));
 
 export function BookingsQueuePage() {
   const { accessToken } = useAuth();
@@ -95,7 +117,7 @@ export function BookingsQueuePage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput
-          placeholder="Search by booking ID, customer or project"
+          placeholder="Search by booking ID, customer ID or project"
           className="flex-1 min-w-[220px]"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
@@ -139,14 +161,17 @@ export function BookingsQueuePage() {
           <Th>Booking ID</Th>
           <Th>Customer</Th>
           <Th>Project / Unit</Th>
-          <Th>Amount</Th>
+          <Th>Plot Price</Th>
+          <Th>Received</Th>
+          <Th>Outstanding</Th>
+          <Th>Next Payment</Th>
           <Th>KYC Status</Th>
           <Th>Booking Status</Th>
         </THead>
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={6} className="px-4 py-10 text-center text-sm text-text-muted">
+              <td colSpan={COLUMNS} className="px-4 py-10 text-center text-sm text-text-muted">
                 Loading bookings...
               </td>
             </tr>
@@ -155,11 +180,19 @@ export function BookingsQueuePage() {
               {items.map((b) => (
                 <Tr key={b.id} onClick={() => navigate(`/admin/bookings/${b.id}`)}>
                   <Td className="font-medium text-text-muted">{b.id}</Td>
-                  <Td className="font-medium">{b.customer_name}</Td>
+                  <Td className="font-medium">
+                    {bookingApplicant(b)}
+                    {b.is_offline && <span className="block text-xs font-normal text-text-muted">Offline buyer</span>}
+                  </Td>
                   <Td>
                     {b.project_name} · {b.unit_number}
                   </Td>
-                  <Td className="font-semibold">{formatCurrency(b.amount)}</Td>
+                  <Td>{money(b.total)}</Td>
+                  <Td className="font-semibold">{money(receivedAmount(b))}</Td>
+                  <Td>{money(b.outstanding)}</Td>
+                  <Td>
+                    <NextPayment booking={b} />
+                  </Td>
                   <Td>
                     <StatusBadge status={b.kyc_status.toUpperCase()} />
                   </Td>
@@ -170,7 +203,7 @@ export function BookingsQueuePage() {
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-text-muted">
+                  <td colSpan={COLUMNS} className="px-4 py-10 text-center text-sm text-text-muted">
                     No bookings match your filters.
                   </td>
                 </tr>

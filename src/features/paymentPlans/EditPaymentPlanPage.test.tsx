@@ -196,6 +196,37 @@ describe("EditPaymentPlanPage saving", () => {
     expect(updatePaymentPlanDetails).not.toHaveBeenCalled();
   });
 
+  it("lets a name be corrected although the stored split is 99.999%", async () => {
+    updatePaymentPlanDetails.mockResolvedValue(plan({ name: "Fixed" }));
+    const rows = plan().instalments!.map((r) => ({ ...r, percent: 33.333 }));
+    const { user } = await renderPage([plan({ instalments: rows, short_code: null })]);
+    await setText(user, screen.getByLabelText("Plan name *"), "Fixed");
+    await user.click(saveButton());
+    expect(await screen.findByText(/was updated\./)).toBeInTheDocument();
+    expect(updatePaymentPlanDetails).toHaveBeenCalledWith("token", { code: CODE, name: "Fixed" });
+  });
+
+  it("still requires a name", async () => {
+    const { user } = await renderPage();
+    await setText(user, screen.getByLabelText("Plan name *"), "");
+    await user.click(saveButton());
+    expect(await screen.findByText(/Plan name must be 2 to 150 characters/)).toBeInTheDocument();
+    expect(updatePaymentPlanDetails).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["422", new ApiError(422, "description: too long"), "description: too long"],
+    ["400", new ApiError(400, "invalid_payment_plan", "invalid_payment_plan"), /The plan is invalid: percentages must add up/],
+  ])("gives the real reason when a name or description is refused (%s)", async (_, error, message) => {
+    // The stored plan has a custom event, which an instalment change would be blamed on.
+    updatePaymentPlanDetails.mockRejectedValue(error);
+    const { user } = await renderPage();
+    await setText(user, screen.getByLabelText("Description"), "New text");
+    await user.click(saveButton());
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(/needs? a server update/)).not.toBeInTheDocument();
+  });
+
   it("sends an empty project to offer the plan for all projects", async () => {
     createPaymentPlanVersion.mockResolvedValue(plan({ version: 2, project_id: null }));
     const { user } = await renderPage();
@@ -231,7 +262,7 @@ describe("EditPaymentPlanPage saving", () => {
     await setText(user, screen.getAllByLabelText("Days later")[1], "45");
     listAdminPaymentPlans.mockResolvedValue({ count: 2, plans: [plan({ version: 2 }), plan({ is_active: false })] });
     await user.click(saveButton());
-    expect(await screen.findByText(/changed by someone else while you were editing it, so nothing was saved/)).toBeInTheDocument();
+    expect(await screen.findByText(/has changed since you opened it, so nothing was saved/)).toBeInTheDocument();
     expect(createPaymentPlanVersion).not.toHaveBeenCalled();
   });
 

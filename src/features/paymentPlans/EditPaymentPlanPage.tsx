@@ -13,7 +13,15 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { PaymentPlanForm } from "./PaymentPlanForm";
-import { buildPlanPayload, planEdit, planFormValues, validatePlanEdit, type PlanEdit } from "./planForm";
+import {
+  buildPlanPayload,
+  planApiErrorMessage,
+  planEdit,
+  planFormValues,
+  planSubmitErrorMessage,
+  validatePlanEdit,
+  type PlanEdit,
+} from "./planForm";
 import { currentPlanVersions, planName, plotUsage, plotsText, type PlansPageState } from "./planList";
 
 function nextVersion(plans: ApiPaymentPlan[], code: string) {
@@ -78,13 +86,14 @@ function EditPlanForm({
   /** Refuses to save over a change made elsewhere since this page loaded. */
   async function assertUnchanged(token: string) {
     const res = await listAdminPaymentPlans(token);
-    const latest = currentPlanVersions(res.plans).find((p) => p.code === plan.code);
+    const all = Array.isArray(res.plans) ? res.plans : [];
+    const latest = currentPlanVersions(all).find((p) => p.code === plan.code);
     if (!latest) throw new ApiError(404, "payment_plan_not_found", "payment_plan_not_found");
     if (
       latest.version !== plan.version ||
       !!latest.is_active !== !!plan.is_active ||
       latest.last_updated_date !== plan.last_updated_date ||
-      nextVersion(res.plans, plan.code) !== nextVersion(plans, plan.code)
+      nextVersion(all, plan.code) !== nextVersion(plans, plan.code)
     )
       throw new ApiError(409, "payment_plan_version_conflict", "payment_plan_version_conflict");
   }
@@ -103,6 +112,10 @@ function EditPlanForm({
         !plan.is_active && planEdit(plan, values).kind === "version" ? "Save and Activate" : "Save Changes"
       }
       submittingLabel="Saving..."
+      // A name / description edit doesn't send the instalments, so they can't be why it was refused.
+      saveErrorMessage={(error, values, payload) =>
+        planEdit(plan, values).kind === "details" ? planApiErrorMessage(error) : planSubmitErrorMessage(error, payload)
+      }
       footnote={(values) => <SaveEffect edit={planEdit(plan, values)} plan={plan} plans={plans} />}
       save={async (token, values) => {
         const edit = planEdit(plan, values);

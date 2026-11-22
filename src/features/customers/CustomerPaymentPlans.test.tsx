@@ -12,7 +12,8 @@ import {
   type BookingStatus,
 } from "../../lib/api";
 import { localDateISO } from "../../lib/format";
-import { CustomerPaymentPlans, comparePlotRows, distinctApplicants } from "./CustomerPaymentPlans";
+import { distinctApplicants } from "../../lib/applicants";
+import { CustomerPaymentPlans, comparePlotRows } from "./CustomerPaymentPlans";
 
 const listBookings = vi.fn();
 const getBooking = vi.fn();
@@ -338,7 +339,7 @@ describe("CustomerPaymentPlans - offline buyers' plots", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(setPlotPaymentTerms).toHaveBeenCalledWith("token", CUSTOMER, "DOC-D8", {
-      payment_plan: "PP1", booking_date: "2026-04-18", sale_price: 5000000, amount_received: 500000,
+      payment_plan: "PP1/FPP/10-15-25-25-15-10", booking_date: "2026-04-18", sale_price: 5000000, amount_received: 500000,
       // Blank fields are sent as null: saving replaces the plot's terms.
       plc: null, ifms: null, cam: null,
     });
@@ -449,7 +450,7 @@ describe("CustomerPaymentPlans - partial failures, order and names", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(setPlotPaymentTerms).toHaveBeenCalledWith("token", CUSTOMER, "DOC-D8", {
-      payment_plan: "PP1", booking_date: "2026-04-18",
+      payment_plan: "PP1/FPP/10-15-25-25-15-10", booking_date: "2026-04-18",
       sale_price: null, plc: null, ifms: null, cam: null, amount_received: null,
     });
   });
@@ -554,7 +555,7 @@ describe("CustomerPaymentPlans - Edit terms changes the plan", () => {
     await user.click(form.getByRole("button", { name: "Change plan" }));
 
     expect(setPlotPaymentTerms).toHaveBeenCalledWith("token", CUSTOMER, "DOC-D8", {
-      payment_plan: "PP2", booking_date: "2026-04-18",
+      payment_plan: "PP2/CLP", booking_date: "2026-04-18",
       sale_price: 5000000, plc: 100000, ifms: 20000, cam: null, amount_received: 500000,
     });
     expect(await screen.findByText(/Construction Linked \(PP2\) · v2/)).toBeInTheDocument();
@@ -619,5 +620,146 @@ describe("CustomerPaymentPlans - part-paid instalments", () => {
     expect(within(paidRow).getAllByRole("cell").map((c) => c.textContent).slice(3, 6)).toEqual(
       ["₹6,56,865", "₹6,56,865", "₹0"]
     );
+  });
+});
+
+describe("CustomerPaymentPlans - an offline plot that has a booking", () => {
+  it("shows the plot once, linked to its booking", async () => {
+    listBookings.mockResolvedValue(page([item("BK-D8")]));
+    getBooking.mockResolvedValue(detail("BK-D8", "Plan", ["Row BK-D8"]));
+    getCustomerDetail.mockResolvedValue({ plots: [offlinePlot("D8", { booking_id: "BK-D8" })] });
+    renderSection();
+    expect(await screen.findByRole("link", { name: "Open booking" })).toHaveAttribute("href", "/admin/bookings/BK-D8");
+    expect(screen.getAllByRole("heading", { name: /Plot D8/ })).toHaveLength(1);
+    expect(screen.queryByText("Row BK-D8")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Plots and payment plans" })).not.toBeInTheDocument();
+  });
+
+  it("still shows the customer's other bookings", async () => {
+    listBookings.mockResolvedValue(page([item("BK-D8"), item("BK-D9")]));
+    getBooking.mockImplementation(async (_t: string, id: string) => detail(id, "Plan", [`Row ${id}`]));
+    getCustomerDetail.mockResolvedValue({ plots: [offlinePlot("D8", { booking_id: "BK-D8" })] });
+    renderSection();
+    expect(await screen.findByText("Row BK-D9")).toBeInTheDocument();
+    expect(screen.queryByText("Row BK-D8")).not.toBeInTheDocument();
+  });
+});
+
+describe("CustomerPaymentPlans - a payment awaiting confirmation on an offline plot", () => {
+  const plot = (overrides: Partial<ApiCustomerPlot> = {}) =>
+    offlinePlot("D8", {
+      booking_id: "BK-D8", sale_price: 5000000, total: 5000000, amount_received: 500000, outstanding: 4500000,
+      terms_status: "complete",
+      schedule: [
+        { milestone_no: 1, label: "On Booking", percent: 10, due_date: "2026-04-18", amount: 500000, status: "paid" },
+        { milestone_no: 2, label: "Within 45 days", percent: 90, due_date: "2026-06-02", amount: 4500000, status: "overdue" },
+      ],
+      ...overrides,
+    });
+  const bookingWith = (status: "pending_review" | "overdue") => {
+    const d = detail("BK-D8", "Plan", ["On Booking", "Within 45 days"]);
+    d.payment_schedule[1] = { ...d.payment_schedule[1], id: "DOC-D8-m2", amount: 4500000, status };
+    return d;
+  };
+
+  beforeEach(() => {
+    listBookings.mockResolvedValue(page([item("BK-D8")]));
+    getCustomerDetail.mockResolvedValue({ plots: [plot()] });
+  });
+
+  it("says a payment is waiting, instead of showing the instalment as overdue", async () => {
+    getBooking.mockResolvedValue(bookingWith("pending_review"));
+    renderSection();
+    expect(await screen.findByText(/the customer submitted a payment for/)).toHaveTextContent("Within 45 days (₹45,00,000)");
+    expect(screen.getByText("Awaiting confirmation")).toBeInTheDocument();
+    expect(screen.queryByText("Overdue")).not.toBeInTheDocument();
+  });
+
+  it("shows nothing extra when no payment is waiting", async () => {
+    getBooking.mockResolvedValue(bookingWith("overdue"));
+    renderSection();
+    expect(await screen.findByText("Overdue")).toBeInTheDocument();
+    expect(screen.queryByText(/submitted a payment/)).not.toBeInTheDocument();
+  });
+
+  it("says so, with a retry, when the booking couldn't be checked", async () => {
+    getBooking.mockRejectedValueOnce(new ApiError(500, "down"));
+    getBooking.mockResolvedValue(bookingWith("pending_review"));
+    const user = userEvent.setup();
+    renderSection();
+    expect(await screen.findByText(/Couldn't check whether a payment/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/the customer submitted a payment for/)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't check/)).not.toBeInTheDocument();
+  });
+
+  it("shows the waiting payment once the server refuses a change because of it", async () => {
+    getBooking.mockResolvedValueOnce(bookingWith("overdue"));
+    getBooking.mockResolvedValue(bookingWith("pending_review"));
+    setPlotPaymentTerms.mockRejectedValue(new ApiError(409, "payment_awaiting_review", "payment_awaiting_review"));
+    const user = userEvent.setup();
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: "Edit prices" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/until that payment is approved or rejected/)).toBeInTheDocument();
+    expect(await screen.findByText(/the customer submitted a payment for/)).toBeInTheDocument();
+  });
+
+  it.each(["Basic sale price (₹)", "Amount received to date (₹)"])("doesn't let a booked plot lose its %s", async (label) => {
+    getBooking.mockResolvedValue(bookingWith("overdue"));
+    const user = userEvent.setup();
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: "Edit prices" }));
+    await user.clear(screen.getByLabelText(label));
+    expect(screen.queryByText(/saving removes this plot's prices/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByText(/can't be left empty/)).toBeInTheDocument();
+    expect(setPlotPaymentTerms).not.toHaveBeenCalled();
+  });
+
+  it("sends the plan's permanent code, so a changed or reused short code can't move the plot", async () => {
+    getBooking.mockResolvedValue(bookingWith("overdue"));
+    setPlotPaymentTerms.mockResolvedValue(plot());
+    const user = userEvent.setup();
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: "Edit prices" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(setPlotPaymentTerms.mock.calls[0][3]).toMatchObject({ payment_plan: "PP1/FPP/10-15-25-25-15-10" });
+  });
+
+  it("still sends what the admin typed when they name another plan", async () => {
+    getBooking.mockResolvedValue(bookingWith("overdue"));
+    setPlotPaymentTerms.mockResolvedValue(plot());
+    const user = userEvent.setup();
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: "Edit prices" }));
+    await user.clear(screen.getByLabelText("Payment plan"));
+    await user.type(screen.getByLabelText("Payment plan"), "PP3");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(setPlotPaymentTerms.mock.calls[0][3]).toMatchObject({ payment_plan: "PP3" });
+  });
+});
+
+describe("CustomerPaymentPlans - website bookings on a shared account", () => {
+  it("lists each booking under its own applicant", async () => {
+    listBookings.mockResolvedValue(page([item("BK-A1"), item("BK-A2", { applicant_name: "Mr. List Name" })]));
+    getBooking.mockImplementation(async (_t: string, id: string) => {
+      if (id === "BK-A2") throw new ApiError(500, "down");
+      return { ...detail(id, "Plan", ["Row"]), applicant_name: "Mrs. Detail Name" };
+    });
+    renderSection();
+    const table = await screen.findByRole("table", { name: "Plots and payment plans" });
+    const names = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1].textContent);
+    expect(names).toEqual(["Mrs. Detail Name", "Mr. List Name"]);
+    expect(screen.getByText(/shared by 2 applicants/)).toBeInTheDocument();
+  });
+
+  it("falls back to the account holder on an older backend", async () => {
+    listBookings.mockResolvedValue(page([item("BK-A1"), item("BK-A2")]));
+    getBooking.mockImplementation(async (_t: string, id: string) => detail(id, "Plan", ["Row"]));
+    renderSection();
+    const table = await screen.findByRole("table", { name: "Plots and payment plans" });
+    expect(within(table).getAllByText("Asha")).toHaveLength(2);
+    expect(screen.queryByText(/shared by/)).not.toBeInTheDocument();
   });
 });

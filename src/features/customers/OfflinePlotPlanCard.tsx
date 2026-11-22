@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { DocumentPreviewModal, type DocumentPreview } from "../../components/DocumentPreviewModal";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -9,6 +10,7 @@ import {
   downloadPlotDemandLetter,
   setPlotPaymentTerms,
   type ApiCustomerPlot,
+  type ApiPaymentMilestone,
   type PlotPaymentTermsPayload,
 } from "../../lib/api";
 import { saveBlob } from "../../lib/download";
@@ -21,7 +23,8 @@ import { PlotPlanPicker } from "./PlotPlanPicker";
 const TERMS_ERRORS: Record<string, string> = {
   plot_not_found: "This plot doesn't belong to this customer.",
   terms_from_website_booking: "A website booking's plan comes from its payment and can't be changed here.",
-  schedule_has_payments: "An instalment of this plot was already paid online, so its terms can't be changed.",
+  schedule_has_payments:
+    "An instalment of this plot was already paid online or recorded on its booking, so its terms can't be changed.",
   payment_plan_not_found: "No active payment plan matches this name. Use its code, e.g. PP1.",
   payment_plan_ambiguous: "More than one plan matches. Use the plan's code, e.g. PP1.",
   payment_plan_not_for_project: "This payment plan belongs to another project.",
@@ -32,6 +35,9 @@ const TERMS_ERRORS: Record<string, string> = {
   sale_price_too_small: "The sale price is too small for this plan.",
   total_amount_too_large: "The total is too large. Check the amounts.",
   payment_details_pending: "Enter this plot's prices first.",
+  plot_has_booking: "This plot has a booking, so its price and amount received can't be left empty.",
+  payment_awaiting_review:
+    "The customer submitted a payment for this plot. Its terms can't be changed until that payment is approved or rejected.",
 };
 
 /** A plot's terms status, worded for the admin (the plot card and the plots summary). */
@@ -90,12 +96,21 @@ export function OfflinePlotPlanCard({
   accessToken,
   customerId,
   plot,
+  pendingPayments = [],
+  pendingUnknown = null,
   onSaved,
+  onPaymentAwaiting,
 }: {
   accessToken: string;
   customerId: string;
   plot: ApiCustomerPlot;
+  /** Instalments of the plot's booking whose payment, submitted by the customer, awaits confirmation. */
+  pendingPayments?: ApiPaymentMilestone[];
+  /** Shown in their place when the plot's booking couldn't be checked for them. */
+  pendingUnknown?: ReactNode;
   onSaved: (plot: ApiCustomerPlot) => void;
+  /** The server refused a change because a submitted payment is waiting. */
+  onPaymentAwaiting?: () => void;
 }) {
   // "plan": choose another of the company's plans; "terms": the plan, date and prices form.
   const [editing, setEditing] = useState<"plan" | "terms" | null>(null);
@@ -112,7 +127,9 @@ export function OfflinePlotPlanCard({
   const coApplicants = plot.co_applicant_names ?? [];
   const today = localDateISO();
   // Saving replaces the plot's terms: without a sale price its instalments and demand letter go.
-  const dropsSchedule = plot.sale_price != null && form.sale_price.trim() === "";
+  // A plot with a booking keeps its prices and amount received: the server refuses to remove them.
+  const dropsSchedule = !plot.booking_id && plot.sale_price != null && form.sale_price.trim() === "";
+  const pendingIds = new Set(pendingPayments.map((m) => m.id));
 
   const set = (key: keyof TermsForm) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -129,8 +146,14 @@ export function OfflinePlotPlanCard({
       setError("Enter the payment plan and the booking date.");
       return;
     }
+    if (plot.booking_id && !((optionalNumber(form.sale_price) ?? 0) > 0 && (optionalNumber(form.amount_received) ?? 0) > 0)) {
+      setError(TERMS_ERRORS.plot_has_booking);
+      return;
+    }
+    // Left as it was: send the plan's code. Its short code may have changed since, or be another plan's now.
+    const typed = form.payment_plan.trim();
     submit({
-      payment_plan: form.payment_plan.trim(),
+      payment_plan: typed === formFrom(plot).payment_plan ? plot.payment_plan?.code || typed : typed,
       booking_date: form.booking_date,
       sale_price: optionalNumber(form.sale_price),
       plc: optionalNumber(form.plc),
@@ -166,6 +189,7 @@ export function OfflinePlotPlanCard({
       onSaved(saved);
     } catch (err) {
       setError(errorText(err, "The payment plan could not be saved. Please try again."));
+      if (err instanceof ApiError && err.code === "payment_awaiting_review") onPaymentAwaiting?.();
     } finally {
       setSaving(false);
     }
@@ -201,6 +225,11 @@ export function OfflinePlotPlanCard({
 
   const action = (
     <div className="flex items-center gap-2">
+      {plot.booking_id && (
+        <Link to={`/admin/bookings/${encodeURIComponent(plot.booking_id)}`} className="text-xs font-semibold text-gold-dark hover:underline">
+          Open booking
+        </Link>
+      )}
       <StatusBadge status="OFFLINE" label="Offline buyer" tone="info" />
       <StatusBadge
         status={plot.terms_status}
@@ -224,6 +253,21 @@ export function OfflinePlotPlanCard({
           )}
         </p>
       )}
+
+      {pendingPayments.length > 0 && (
+        <div role="status" className="mb-4 rounded-lg bg-info-bg p-3 text-sm text-info">
+          {pendingPayments.map((m) => (
+            <p key={m.id}>
+              Awaiting confirmation: the customer submitted a payment for <strong>{m.label}</strong> (
+              {formatCurrency(Number(m.amount) || 0)}).
+            </p>
+          ))}
+          <p className="mt-1">
+            Don't collect or record it again. This plot's terms can't be changed until it is approved or rejected.
+          </p>
+        </div>
+      )}
+      {pendingUnknown}
 
       {editing === "plan" ? (
         <PlotPlanPicker
@@ -262,8 +306,9 @@ export function OfflinePlotPlanCard({
             <TextField label="CAM (₹)" type="number" min={0} step="any" value={form.cam} onChange={set("cam")} />
           </div>
           <p className="text-xs text-text-muted">
-            Leave the prices blank to save just the plan and booking date. With a sale price, the instalments are
-            built from the plan and the amount received is marked against them, oldest first.
+            {plot.booking_id
+              ? "This plot has a booking, so the sale price and the amount received are required. The instalments are built from the plan and the amount received is marked against them, oldest first."
+              : "Leave the prices blank to save just the plan and booking date. With a sale price, the instalments are built from the plan and the amount received is marked against them, oldest first."}
           </p>
           {dropsSchedule && (
             <p role="status" className="rounded-lg bg-warning-bg p-3 text-sm text-warning">
@@ -338,7 +383,11 @@ export function OfflinePlotPlanCard({
                         {formatCurrency(row.balance ?? (row.status === "paid" ? 0 : row.amount))}
                       </td>
                       <td className="py-2">
-                        <StatusBadge status={row.status.toUpperCase()} />
+                        {pendingIds.has(`${plot.document_id}-m${row.milestone_no}`) ? (
+                          <StatusBadge status="PENDING_REVIEW" label="Awaiting confirmation" />
+                        ) : (
+                          <StatusBadge status={row.status.toUpperCase()} />
+                        )}
                       </td>
                     </tr>
                   ))}

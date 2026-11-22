@@ -53,7 +53,7 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   sale_price_too_small: "The instalment split produces amounts that are too small. Check the percentages.",
   payment_plan_not_found: "This plan no longer exists. Go back to Payment Plans and reload the page.",
   payment_plan_version_conflict:
-    "This plan was changed by someone else while you were editing it, so nothing was saved. Reload the page to see the latest version, then make your changes again.",
+    "This plan has changed since you opened it, so nothing was saved just now. Another admin may have edited it, or an earlier save of yours went through although the connection dropped. Reload the page to see the latest version before making changes.",
 };
 
 // Shown when the server rejects a plan that relies on the backend update for a free-text
@@ -339,7 +339,10 @@ export function planEdit(plan: ApiPaymentPlan, values: PlanFormValues): PlanEdit
   };
 }
 
-/** validatePlanForm for an edit: the plan may keep its own (permanent) code and its short code. */
+/**
+ * validatePlanForm for an edit: the plan may keep its own (permanent) code and its short code,
+ * and a change of name or description isn't held up by fields it doesn't save.
+ */
 export function validatePlanEdit(
   plan: ApiPaymentPlan,
   values: PlanFormValues,
@@ -350,9 +353,8 @@ export function validatePlanEdit(
     existingPlans.filter((p) => p.code !== plan.code)
   );
   delete errors.code;
-  // An inactive plan that stays inactive can share its short code with an active one.
-  if (!plan.is_active && planEdit(plan, values).kind !== "version") delete errors.shortCode;
-  return errors;
+  if (planEdit(plan, values).kind === "version") return errors;
+  return errors.name ? { name: errors.name } : {};
 }
 
 /**

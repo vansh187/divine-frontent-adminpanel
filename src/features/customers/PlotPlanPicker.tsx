@@ -40,8 +40,8 @@ export function PlotPlanPicker({
   currentCode: string | null;
   saving: boolean;
   error: string | null;
-  /** Called with the chosen plan's short code (or code when it has none). */
-  onSave: (planRef: string) => void;
+  /** Called with the chosen plan's code: unlike its short code, it never changes or moves to another plan. */
+  onSave: (planCode: string) => void;
   onCancel: () => void;
 }) {
   const [plans, setPlans] = useState<ApiPaymentPlan[] | null>(null);
@@ -70,7 +70,7 @@ export function PlotPlanPicker({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (chosen && !unchanged) onSave(chosen.short_code || chosen.code);
+    if (chosen && !unchanged) onSave(chosen.code);
   }
 
   return (

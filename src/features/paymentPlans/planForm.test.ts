@@ -482,6 +482,14 @@ describe("editing a plan", () => {
     expect(planEdit(stored(), values).kind).toBe("version");
   });
 
+  it("checks every field of a new version, but only the name when only text changes", () => {
+    const short = stored({ short_code: null });
+    const values = { ...planFormValues(short), description: "New" };
+    expect(validatePlanEdit(short, values, [short])).toEqual({});
+    expect(Object.keys(validatePlanEdit(short, { ...values, name: "" }, [short]))).toEqual(["name"]);
+    expect(validatePlanEdit(short, { ...values, projectId: "x" }, [short])).toHaveProperty("shortCode");
+  });
+
   it("lets an inactive plan be renamed, but not reactivated, while another active plan has its short code", () => {
     const inactive = stored({ is_active: false });
     const clash = [inactive, stored({ code: "PP9/NEW" })];

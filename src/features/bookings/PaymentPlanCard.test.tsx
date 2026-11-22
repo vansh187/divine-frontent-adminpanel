@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiBookingDetail, ApiPaymentMilestone } from "../../lib/api";
+import { ApiError, type ApiBookingDetail, type ApiPaymentMilestone } from "../../lib/api";
 import { PaymentPlanCard } from "./PaymentPlanCard";
 
 const recordInstallmentPayment = vi.fn();
@@ -73,7 +73,9 @@ function rowFor(label: string) {
   return screen.getByText(label).closest("tr") as HTMLElement;
 }
 
-beforeEach(() => recordInstallmentPayment.mockReset());
+beforeEach(() => {
+  recordInstallmentPayment.mockReset();
+});
 
 describe("PaymentPlanCard (read-only, customer page)", () => {
   it("shows the chosen plan, totals, paid count and every instalment's status", () => {
@@ -188,5 +190,93 @@ describe("PaymentPlanCard (booking page, editable)", () => {
     });
     expect(props.onUpdated).toHaveBeenCalledWith(updated);
     expect(screen.getByText(/Second recorded as received via Cheque/)).toBeInTheDocument();
+  });
+});
+
+describe("PaymentPlanCard - an instalment paid in parts", () => {
+  it("keeps the full plan value and shows what is paid and left, recording only the balance", async () => {
+    const user = userEvent.setup();
+    const schedule = [
+      milestone({ id: "m1", label: "First half", status: "paid", amount: 1313730, instalment_amount: 1313730, amount_paid: 1313730 }),
+      milestone({ id: "m2", label: "Second part", status: "overdue", amount: 395725, instalment_amount: 656865, amount_paid: 261140 }),
+      milestone({ id: "m3", label: "Last part", amount: 656865, instalment_amount: 656865, amount_paid: 0 }),
+    ];
+    const data = booking({ is_offline: true, payment_schedule: schedule, amount_received: 1574870 });
+    recordInstallmentPayment.mockResolvedValue(data);
+    render(<PaymentPlanCard booking={data} accessToken="token" onUpdated={vi.fn()} onStale={vi.fn()} />);
+
+    expect(screen.getByText("Total Plan Value").nextSibling).toHaveTextContent("₹26,27,460");
+    expect(screen.getByText("Outstanding").nextSibling).toHaveTextContent("₹10,52,590");
+    const cells = within(rowFor("Second part")).getAllByRole("cell").map((c) => c.textContent);
+    expect(cells.slice(2, 5)).toEqual(["₹6,56,865", "₹2,61,140", "₹3,95,725"]);
+    expect(within(rowFor("First half")).getByText("Received offline")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /record payment/i }));
+    await user.click(screen.getByRole("button", { name: "Confirm Received" }));
+    expect(recordInstallmentPayment).toHaveBeenCalledWith("token", "BK-1", "m2", expect.objectContaining({ amount: 395725 }));
+  });
+});
+
+describe("PaymentPlanCard - where a paid instalment's money came from", () => {
+  const paid = (overrides: Partial<ApiPaymentMilestone>) =>
+    booking({ payment_schedule: [milestone({ label: "Row", status: "paid", ...overrides })] });
+  const cell = () => within(rowFor("Row")).getAllByRole("cell")[6].textContent;
+
+  it("doesn't call a website booking's payment offline when its date is missing", () => {
+    render(<PaymentPlanCard readOnly booking={paid({ paid_payment_id: "pay_Rzp1" })} />);
+    expect(cell()).toBe("-pay_Rzp1");
+  });
+
+  it("doesn't call a payment recorded on an offline booking 'received offline'", () => {
+    render(<PaymentPlanCard readOnly booking={{ ...paid({ paid_payment_id: "PAY-9" }), is_offline: true }} />);
+    expect(cell()).toBe("-PAY-9");
+  });
+
+  it("says so for money an offline buyer paid before go-live", () => {
+    render(<PaymentPlanCard readOnly booking={{ ...paid({}), is_offline: true }} />);
+    expect(cell()).toBe("Received offline");
+  });
+});
+
+describe("PaymentPlanCard - corner cases", () => {
+  const handlers = () => ({ accessToken: "token", onUpdated: vi.fn(), onStale: vi.fn() });
+  const due = (milestone_id: string, due_date: string | null) => ({
+    milestone_id, label: "Next", amount: 100000, due_date, days_until_due: due_date ? 5 : null,
+    status: "upcoming" as const, last_reminder_kind: null, last_reminder_at: null,
+  });
+
+  it("reloads instead of keeping an old amount when part of the instalment was paid meanwhile", async () => {
+    const user = userEvent.setup();
+    const props = handlers();
+    recordInstallmentPayment.mockRejectedValue(new ApiError(400, "installment_amount_mismatch", "installment_amount_mismatch"));
+    render(<PaymentPlanCard booking={booking({ payment_schedule: [milestone({ id: "m1" })] })} {...props} />);
+    await user.click(screen.getByRole("button", { name: /record payment/i }));
+    await user.click(screen.getByRole("button", { name: "Confirm Received" }));
+    expect(props.onStale).toHaveBeenCalledWith(expect.stringContaining("nothing was recorded"));
+    expect(screen.queryByRole("button", { name: "Confirm Received" })).not.toBeInTheDocument();
+  });
+
+  it("never offers to record a payment of nothing", () => {
+    const schedule = [milestone({ id: "m1", status: "overdue", amount: 0, instalment_amount: 500, amount_paid: 500 })];
+    render(<PaymentPlanCard booking={booking({ payment_schedule: schedule })} {...handlers()} />);
+    expect(screen.getByRole("button", { name: /record payment/i })).toBeDisabled();
+  });
+
+  it("doesn't blame earlier instalments for one that waits on an event", () => {
+    const schedule = [
+      milestone({ id: "m1", label: "Plinth", due_date: null, due_text: "On Completion of plinth" }),
+      milestone({ id: "m2", label: "Dated" }),
+      milestone({ id: "m3", label: "Later" }),
+    ];
+    render(<PaymentPlanCard booking={booking({ payment_schedule: schedule, next_due: due("m2", "2026-12-01") })} {...handlers()} />);
+    expect(within(rowFor("Plinth")).getByText("Waiting for its event")).toBeInTheDocument();
+    expect(within(rowFor("Dated")).getByRole("button", { name: /record payment/i })).toBeEnabled();
+    expect(within(rowFor("Later")).getByText("After earlier installments")).toBeInTheDocument();
+  });
+
+  it("names the event when the next due instalment has no date", () => {
+    const schedule = [milestone({ id: "m1", label: "Possession", due_date: null, due_text: "On Offer of Possession" })];
+    render(<PaymentPlanCard readOnly booking={booking({ payment_schedule: schedule, next_due: due("m1", null) })} />);
+    expect(screen.getAllByText("On Offer of Possession")).toHaveLength(2);
   });
 });

@@ -403,6 +403,8 @@ export interface ApiCustomerPlotScheduleRow {
 /** One plot of a customer: a website booking or an offline buyer's plot. */
 export interface ApiCustomerPlot {
   document_id: string;
+  /** Its row in the Bookings tab, when it has one. */
+  booking_id?: string | null;
   record_type: "offline" | "website";
   project_name: string | null;
   unit_number: string | null;
@@ -624,14 +626,35 @@ export interface ApiBookingListItem {
   id: string;
   customer_id: string;
   customer_name: string;
+  /** The plot's own applicant (buyers sharing an email share one account). */
+  applicant_name?: string | null;
   project_name: string;
   unit_number: string;
   amount: number;
+  /** A plot sold offline and migrated from the client's sheet. */
+  is_offline?: boolean;
+  /** Of a booked plot's payment plan; null until its schedule exists, absent on older backends. */
+  total?: number | null;
+  amount_received?: number | null;
+  outstanding?: number | null;
+  next_payment?: ApiBookingNextPayment | null;
   status: BookingStatus;
   kyc_status: KycStatus;
   version: number;
   created_at: string;
   last_activity_at: string;
+}
+
+/** The instalment a booking's customer pays next: what is left of the first one not fully paid. */
+export interface ApiBookingNextPayment {
+  label: string | null;
+  amount: number;
+  /** Null until its event (e.g. the offer of possession) has a date. */
+  due_date: string | null;
+  due_text: string | null;
+  /** Negative when overdue. */
+  days_until_due: number | null;
+  status: "overdue" | "due" | "upcoming";
 }
 
 export interface BookingListResponse {
@@ -688,6 +711,12 @@ export interface ApiBookingDetail {
   kyc_status: KycStatus;
   version: number;
   admin_note: string | null;
+  /** A plot sold offline and migrated from the client's sheet: can't be cancelled / refunded here. */
+  is_offline?: boolean;
+  /** Whether the KYC checklist accepts an upload right now. Absent on older backends. */
+  can_upload_documents?: boolean;
+  /** The plot's own applicant (buyers sharing an email share one account). */
+  applicant_name?: string | null;
   customer_id: string;
   customer_name: string;
   customer_email: string;
@@ -741,7 +770,11 @@ export interface ApiPaymentMilestone {
   due_date: string | null;
   /** e.g. "30 days after Completion of plinth" — shown when there is no due_date. */
   due_text?: string | null;
+  /** What is payable now: the instalment, or what is left of it when paid in parts. */
   amount: number;
+  /** The instalment in full, and what is paid towards it; absent on older backends. */
+  instalment_amount?: number | null;
+  amount_paid?: number | null;
   status: InstallmentStatus;
   /** The backend rejects a payment for this milestone before this date. */
   pay_enabled_from: string;
@@ -753,9 +786,10 @@ export interface ApiNextDue {
   milestone_id: string;
   label: string;
   amount: number;
-  due_date: string;
+  /** Null when nothing dated is left: the next instalment waits on an event (possession / custom). */
+  due_date: string | null;
   /** Negative when overdue. */
-  days_until_due: number;
+  days_until_due: number | null;
   status: InstallmentStatus;
   last_reminder_kind: string | null;
   last_reminder_at: string | null;
@@ -889,7 +923,8 @@ export function downloadDemandLetter(accessToken: string, bookingId: string) {
 }
 
 export type RevenueStatus = "captured" | "cash_recorded" | "refund_pending" | "refunded";
-export type RevenueMethod = "razorpay" | "zoho" | "cash" | "rtgs_neft";
+/** offline: received before go-live, migrated as one total. */
+export type RevenueMethod = "razorpay" | "zoho" | "cash" | "rtgs_neft" | "cheque" | "offline";
 
 export interface RevenueSummaryParams {
   date_from?: string;
@@ -980,7 +1015,7 @@ export function getRevenueTransaction(
   return authRequest<ApiRevenueTransactionDetail>(`/admin/revenue/transactions/${id}`, accessToken);
 }
 
-export type RefundMethod = "razorpay" | "zoho" | "cash" | "rtgs_neft";
+export type RefundMethod = "razorpay" | "zoho" | "cash" | "rtgs_neft" | "cheque";
 export type RefundStatus =
   | "processing"
   | "completed"

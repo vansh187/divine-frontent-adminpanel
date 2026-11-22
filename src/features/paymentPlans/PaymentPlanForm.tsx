@@ -37,6 +37,7 @@ export function PaymentPlanForm({
   validate,
   buildPayload,
   save,
+  saveErrorMessage = (error, _values, payload) => planSubmitErrorMessage(error, payload),
   submitLabel,
   submittingLabel,
   lockCode = false,
@@ -54,6 +55,8 @@ export function PaymentPlanForm({
   buildPayload: (values: PlanFormValues) => PaymentPlanCreatePayload;
   /** Saves and leaves the page. What it throws is shown in the form. */
   save: (token: string, values: PlanFormValues, payload: PaymentPlanCreatePayload) => Promise<void>;
+  /** Wording for what `save` throws; defaults to that of a rejected whole plan. */
+  saveErrorMessage?: (error: unknown, values: PlanFormValues, payload: PaymentPlanCreatePayload) => string;
   submitLabel: string | ((values: PlanFormValues) => string);
   submittingLabel: string;
   /** Editing: the plan code is permanent. */
@@ -136,7 +139,7 @@ export function PaymentPlanForm({
       // A stale preview error is dropped; a failed save is always shown so the
       // admin knows the plan was not saved.
       if (mode === "preview" && formVersion.current !== sentVersion) return;
-      setApiError(planSubmitErrorMessage(e, payload));
+      setApiError(mode === "preview" ? planSubmitErrorMessage(e, payload) : saveErrorMessage(e, values, payload));
     } finally {
       setSubmitting(null);
     }

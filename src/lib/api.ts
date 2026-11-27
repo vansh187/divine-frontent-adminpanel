@@ -426,6 +426,11 @@ export interface ApiCustomerPlot {
   /** Only an offline buyer's plot; a website booking keeps the terms it was paid against. */
   terms_editable: boolean;
   demand_letter_available: boolean;
+  /**
+   * Whether the customer may download this plot's demand letter from their website account. Set
+   * per plot by an admin; off by default. Absent on an older backend.
+   */
+  demand_letter_on_website?: boolean;
   schedule: ApiCustomerPlotScheduleRow[];
 }
 
@@ -471,6 +476,23 @@ export function setPlotPaymentTerms(
     `/admin/customers/${encodeURIComponent(customerId)}/plots/${encodeURIComponent(documentId)}/payment-terms`,
     accessToken,
     { method: "PUT", body: JSON.stringify(payload) }
+  );
+}
+
+/**
+ * Shows (true) or hides (false) one plot's demand letter on the customer's website account. The
+ * customer's other plots keep their own setting. 404 plot_not_found when it isn't this customer's.
+ */
+export function setPlotDemandLetterOnWebsite(
+  accessToken: string,
+  customerId: string,
+  documentId: string,
+  onWebsite: boolean
+): Promise<ApiCustomerPlot> {
+  return authRequest<ApiCustomerPlot>(
+    `/admin/customers/${encodeURIComponent(customerId)}/plots/${encodeURIComponent(documentId)}/demand-letter-on-website`,
+    accessToken,
+    { method: "PUT", body: JSON.stringify({ on_website: onWebsite }) }
   );
 }
 

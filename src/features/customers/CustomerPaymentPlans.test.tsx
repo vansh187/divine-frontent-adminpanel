@@ -20,6 +20,7 @@ const getBooking = vi.fn();
 const getCustomerDetail = vi.fn();
 const setPlotPaymentTerms = vi.fn();
 const downloadPlotDemandLetter = vi.fn();
+const setPlotDemandLetterOnWebsite = vi.fn();
 const listAdminPaymentPlans = vi.fn();
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
@@ -29,6 +30,7 @@ vi.mock("../../lib/api", async (importOriginal) => ({
   getCustomerDetail: (...args: unknown[]) => getCustomerDetail(...args),
   setPlotPaymentTerms: (...args: unknown[]) => setPlotPaymentTerms(...args),
   downloadPlotDemandLetter: (...args: unknown[]) => downloadPlotDemandLetter(...args),
+  setPlotDemandLetterOnWebsite: (...args: unknown[]) => setPlotDemandLetterOnWebsite(...args),
 }));
 const saveBlob = vi.fn();
 vi.mock("../../lib/download", () => ({ saveBlob: (...args: unknown[]) => saveBlob(...args) }));
@@ -117,6 +119,7 @@ beforeEach(() => {
   getCustomerDetail.mockResolvedValue({ plots: [] });
   setPlotPaymentTerms.mockReset();
   downloadPlotDemandLetter.mockReset();
+  setPlotDemandLetterOnWebsite.mockReset();
   listAdminPaymentPlans.mockReset();
   saveBlob.mockReset();
 });
@@ -761,5 +764,123 @@ describe("CustomerPaymentPlans - website bookings on a shared account", () => {
     const table = await screen.findByRole("table", { name: "Plots and payment plans" });
     expect(within(table).getAllByText("Asha")).toHaveLength(2);
     expect(screen.queryByText(/shared by/)).not.toBeInTheDocument();
+  });
+});
+
+describe("CustomerPaymentPlans - showing a plot's demand letter on the customer's website", () => {
+  const priced = { demand_letter_available: true, terms_status: "complete" as const, sale_price: 1000000, total: 1000000 };
+  const dropdown = (plot: string) => screen.getByRole("combobox", { name: `Show demand letter on website for plot ${plot}` });
+  /** The saved plot, as the server sends it back. */
+  const saving = (plots: ApiCustomerPlot[]) =>
+    setPlotDemandLetterOnWebsite.mockImplementation(async (_t: string, _c: string, doc: string, on: boolean) => ({
+      ...plots.find((p) => p.document_id === doc)!,
+      demand_letter_on_website: on,
+    }));
+
+  it("has its own Yes / No for each plot, off until the admin says yes", async () => {
+    const user = userEvent.setup();
+    const plots = [
+      offlinePlot("D7", { ...priced, demand_letter_on_website: false }),
+      offlinePlot("D8", { ...priced, demand_letter_on_website: false }),
+    ];
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({ plots });
+    saving(plots);
+    renderSection();
+
+    await screen.findByRole("heading", { name: /Plot D7/ });
+    expect(dropdown("D7")).toHaveValue("no");
+    expect(dropdown("D8")).toHaveValue("no");
+    expect(within(cardOf(screen.getByRole("heading", { name: /Plot D7/ }))).getByText(/Download is disabled/)).toBeInTheDocument();
+
+    await user.selectOptions(dropdown("D7"), "yes");
+    expect(setPlotDemandLetterOnWebsite).toHaveBeenCalledTimes(1);
+    expect(setPlotDemandLetterOnWebsite).toHaveBeenCalledWith("token", CUSTOMER, "DOC-D7", true);
+    await waitFor(() => expect(dropdown("D7")).toHaveValue("yes"));
+    expect(dropdown("D8")).toHaveValue("no");
+    expect(within(cardOf(screen.getByRole("heading", { name: /Plot D7/ }))).queryByText(/Download is disabled/)).not.toBeInTheDocument();
+
+    await user.selectOptions(dropdown("D7"), "no");
+    expect(setPlotDemandLetterOnWebsite).toHaveBeenLastCalledWith("token", CUSTOMER, "DOC-D7", false);
+    await waitFor(() => expect(dropdown("D7")).toHaveValue("no"));
+    expect(setPlotDemandLetterOnWebsite).toHaveBeenCalledTimes(2);
+  });
+
+  it("is on a website booking's card too, for that booking's own record", async () => {
+    const user = userEvent.setup();
+    const record = offlinePlot("A12", { record_type: "website", booking_id: "BK-A12", document_id: "DOC-WEB",
+      terms_editable: false, demand_letter_on_website: false, ...priced });
+    listBookings.mockResolvedValue(page([item("BK-A12"), item("BK-B07")]));
+    getBooking.mockImplementation(async (_t: string, id: string) => detail(id, "Plan", ["Row"]));
+    getCustomerDetail.mockResolvedValue({ plots: [record] });
+    saving([record]);
+    renderSection();
+
+    await screen.findByRole("heading", { name: /Plot A12/ });
+    await user.selectOptions(dropdown("A12"), "yes");
+    expect(setPlotDemandLetterOnWebsite).toHaveBeenCalledWith("token", CUSTOMER, "DOC-WEB", true);
+    await waitFor(() => expect(dropdown("A12")).toHaveValue("yes"));
+    // A booking whose record didn't come back has nothing to set.
+    expect(screen.queryByRole("combobox", { name: /plot B07/ })).not.toBeInTheDocument();
+    // The website record is never shown as an offline plot card of its own.
+    expect(screen.getAllByRole("heading", { name: /Plot A12/ })).toHaveLength(1);
+  });
+
+  it("can't be changed again while it is saving, and goes back when saving fails", async () => {
+    const user = userEvent.setup();
+    let fail!: (err: unknown) => void;
+    setPlotDemandLetterOnWebsite.mockReturnValue(new Promise((_, reject) => (fail = reject)));
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({ plots: [offlinePlot("D7", { ...priced, demand_letter_on_website: false })] });
+    renderSection();
+
+    await screen.findByRole("heading", { name: /Plot D7/ });
+    await user.selectOptions(dropdown("D7"), "yes");
+    expect(dropdown("D7")).toHaveValue("yes");
+    expect(dropdown("D7")).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Saving...");
+
+    fail(new ApiError(404, "plot_not_found", "plot_not_found"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This plot doesn't belong to this customer.");
+    expect(dropdown("D7")).toHaveValue("no");
+    expect(dropdown("D7")).toBeEnabled();
+
+    setPlotDemandLetterOnWebsite.mockRejectedValue(new TypeError("Failed to fetch"));
+    await user.selectOptions(dropdown("D7"), "yes");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The setting could not be saved. Please try again.");
+    expect(dropdown("D7")).toHaveValue("no");
+  });
+
+  it("says when the customer will get it: once the plot has prices", async () => {
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({ plots: [offlinePlot("D7", { demand_letter_on_website: true })] });
+    renderSection();
+    await screen.findByRole("heading", { name: /Plot D7/ });
+    expect(dropdown("D7")).toHaveValue("yes");
+    expect(screen.getByText(/once its prices are entered/)).toBeInTheDocument();
+  });
+
+  it("isn't offered by an older server that doesn't send it", async () => {
+    listBookings.mockResolvedValue(page([]));
+    getCustomerDetail.mockResolvedValue({ plots: [offlinePlot("D7", priced)] });
+    renderSection();
+    await screen.findByRole("heading", { name: /Plot D7/ });
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("drops a reply that arrives after the admin left the customer", async () => {
+    const user = userEvent.setup();
+    let answer!: (plot: ApiCustomerPlot) => void;
+    setPlotDemandLetterOnWebsite.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    listBookings.mockResolvedValue(page([]));
+    const plot = offlinePlot("D7", { ...priced, demand_letter_on_website: false });
+    getCustomerDetail.mockResolvedValue({ plots: [plot] });
+    const { unmount } = renderSection();
+    await screen.findByRole("heading", { name: /Plot D7/ });
+    await user.selectOptions(dropdown("D7"), "yes");
+    unmount();
+    answer({ ...plot, demand_letter_on_website: true });
+    await Promise.resolve();
+    expect(setPlotDemandLetterOnWebsite).toHaveBeenCalledTimes(1);
   });
 });

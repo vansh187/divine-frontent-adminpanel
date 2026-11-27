@@ -1092,23 +1092,6 @@ describe("BookingDetailPage - deciding only on what the admin saw", () => {
     expect(await screen.findByText(/so KYC was not verified/)).toBeInTheDocument();
   });
 
-  it("doesn't approve a document that finished uploading behind the open dialog", async () => {
-    const user = userEvent.setup();
-    const review = (o: Partial<ApiBookingDetail> = {}) =>
-      booking({ status: "pending_kyc_review", version: 3, documents: documents(TYPES), ...o });
-    await show(review());
-    const upload = later<ApiBookingDetail>();
-    uploadBookingDocument.mockReturnValue(upload.promise);
-    await chooseAndUpload(user, "PAN Card");
-    await user.click(screen.getByRole("button", { name: "Approve" }));
-    await upload.reply(review({ version: 4 }));
-    approveBooking.mockRejectedValue(refuse(409, "version_conflict"));
-    getBooking.mockResolvedValue(review({ version: 4 }));
-    await user.click(screen.getByRole("button", { name: "Confirm Approve" }));
-    expect(approveBooking.mock.calls[0][2]).toMatchObject({ version: 3 });
-    expect(await screen.findByText(/already updated elsewhere/)).toBeInTheDocument();
-  });
-
   it("does the same when a token refresh reloads the page", async () => {
     const user = userEvent.setup();
     const { refreshToken } = await show(allDocs());
@@ -1175,23 +1158,6 @@ describe("BookingDetailPage - deciding only on what the admin saw", () => {
 });
 
 describe("BookingDetailPage - replies arriving out of order", () => {
-  it("keeps an upload's booking when the reload after a refused verification arrives later", async () => {
-    const user = userEvent.setup();
-    await show(allDocs({ version: 8 }));
-    const slow = later<ApiBookingDetail>();
-    verifyBookingKyc.mockRejectedValue(refuse(409, "version_conflict"));
-    await user.upload(chooser("PAN Card"), image());
-    await user.click(screen.getByRole("button", { name: "Verify KYC" }));
-    getBooking.mockReturnValueOnce(slow.promise);
-    await user.click(screen.getByRole("button", { name: "Confirm Verified" }));
-    uploadBookingDocument.mockResolvedValue(allDocs({ version: 10 }));
-    await user.click(uploadButton("PAN Card"));
-    expect(await screen.findByText("v10")).toBeInTheDocument();
-    await slow.reply(allDocs({ version: 9 }));
-    expect(screen.getByText("v10")).toBeInTheDocument();
-    expect(screen.queryByText("v9")).not.toBeInTheDocument();
-  });
-
   it("keeps the newer of two loads, whichever arrives last", async () => {
     const user = userEvent.setup();
     popup();
@@ -1302,6 +1268,393 @@ describe("BookingDetailPage - replies arriving out of order", () => {
     getBooking.mockResolvedValue(allDocs());
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { name: "BKG-1" })).toBeInTheDocument();
+  });
+});
+
+describe("BookingDetailPage - the admin's own change is never reported as someone else's", () => {
+  const withPlan = (o: Partial<ApiBookingDetail> = {}) => allDocs({ payment_schedule: [milestone()], ...o });
+  const verifyButton = () => screen.getByRole("button", { name: "Verify KYC" });
+  const confirm = () => screen.getByRole("button", { name: "Confirm Verified" });
+
+  /** An upload sent at v6 whose result a preview shows before its own reply. */
+  async function uploadSeenEarly(user: ReturnType<typeof userEvent.setup>, seen = 7) {
+    popup();
+    await show(withPlan());
+    const upload = later<ApiBookingDetail>();
+    uploadBookingDocument.mockReturnValue(upload.promise);
+    await chooseAndUpload(user, "PAN Card");
+    getBooking.mockResolvedValue(withPlan({ version: seen }));
+    await user.click(previewButton("Cancelled Cheque"));
+    await screen.findByText(`v${seen}`);
+    return upload;
+  }
+
+  it("shows an upload early through a preview, without a warning", async () => {
+    const user = userEvent.setup();
+    const upload = await uploadSeenEarly(user);
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    await upload.reply(withPlan({ version: 7 }));
+    expect(screen.getByText("PAN Card uploaded.")).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("says so at once when the preview is further on than the upload could make it", async () => {
+    const user = userEvent.setup();
+    const upload = await uploadSeenEarly(user, 8);
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+    await upload.reply(withPlan({ version: 7 }));
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+    expect(screen.getByText("v8")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["the file was refused", refuse(415, "unsupported_media_type", "Not an image.")],
+    ["the upload is no longer accepted", refuse(409, "booking_not_uploadable")],
+    ["the outcome is unknown", new TypeError("Failed to fetch")],
+    ["the server failed", refuse(500, "internal_error")],
+  ])("reports it once the upload turns out not to explain it: %s", async (_, error) => {
+    const user = userEvent.setup();
+    const upload = await uploadSeenEarly(user);
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    await upload.fail(error);
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it("leaves it to the conflict message when someone else's change won", async () => {
+    const user = userEvent.setup();
+    const upload = await uploadSeenEarly(user);
+    await upload.fail(refuse(409, "version_conflict"));
+    expect(await screen.findByText(/changed since it was loaded, so nothing was uploaded/)).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("knows its own upload when the reply couldn't be read back", async () => {
+    const user = userEvent.setup();
+    const upload = await uploadSeenEarly(user);
+    await upload.fail(refuse(503, "document_saved_refresh_failed"));
+    expect(await screen.findByText("PAN Card uploaded.")).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("forgets what it held back: a later change is still reported", async () => {
+    const user = userEvent.setup();
+    const upload = await uploadSeenEarly(user);
+    await upload.reply(withPlan({ version: 7 }));
+    getBooking.mockResolvedValue(withPlan({ version: 8 }));
+    await user.click(previewButton("Cancelled Cheque"));
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it("forgets a refused upload: the very next version from someone else is reported", async () => {
+    const user = userEvent.setup();
+    popup();
+    await show(withPlan());
+    uploadBookingDocument.mockRejectedValue(refuse(415, "unsupported_media_type", "Not an image."));
+    await chooseAndUpload(user, "PAN Card");
+    expect(await screen.findByText(/Not an image\./)).toBeInTheDocument();
+    getBooking.mockResolvedValue(withPlan({ version: 7 }));
+    await user.click(previewButton("Cancelled Cheque"));
+    await screen.findByText("v7");
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it("shows an upload early through a token refresh, without a warning", async () => {
+    const user = userEvent.setup();
+    const { refreshToken } = await show(withPlan());
+    const upload = later<ApiBookingDetail>();
+    uploadBookingDocument.mockReturnValue(upload.promise);
+    await chooseAndUpload(user, "PAN Card");
+    getBooking.mockResolvedValue(withPlan({ version: 7 }));
+    refreshToken();
+    await screen.findByText("v7");
+    await upload.reply(withPlan({ version: 7 }));
+    expect(screen.getByText("PAN Card uploaded.")).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("shows an upload early through an instalment's reply, without a warning", async () => {
+    const user = userEvent.setup();
+    await show(withPlan());
+    const upload = later<ApiBookingDetail>();
+    uploadBookingDocument.mockReturnValue(upload.promise);
+    await chooseAndUpload(user, "PAN Card");
+    recordInstallmentPayment.mockResolvedValue(withPlan({ version: 7, payment_schedule: [paid()] }));
+    await recordInstalment(user);
+    await screen.findByText("v7");
+    getBooking.mockResolvedValue(withPlan({ version: 7, payment_schedule: [paid()] }));
+    await upload.reply(withPlan({ version: 7, payment_schedule: [paid()] }));
+    expect(screen.getByText("PAN Card uploaded.")).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  /** A verification sent at v6 whose result a slow preview shows before its own reply. */
+  async function verificationSeenEarly(user: ReturnType<typeof userEvent.setup>, seen: Partial<ApiBookingDetail> = {}) {
+    popup();
+    await show(allDocs());
+    const slow = later<ApiBookingDetail>();
+    const answer = later<ApiBookingDetail>();
+    getBooking.mockReturnValueOnce(slow.promise);
+    verifyBookingKyc.mockReturnValueOnce(answer.promise);
+    await user.click(previewButton("PAN Card"));
+    await user.click(verifyButton());
+    await user.type(screen.getByLabelText("Note for the record (optional)"), "seen");
+    await user.click(confirm());
+    await slow.reply(allDocs({ version: 7, ...seen }));
+    return answer;
+  }
+
+  it("shows a verification early, without a warning", async () => {
+    const user = userEvent.setup();
+    const verified = { version: 7, kyc_status: "verified" as const, can_verify_kyc: false };
+    const answer = await verificationSeenEarly(user, verified);
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    getBooking.mockResolvedValue(allDocs(verified));
+    await answer.reply(allDocs(verified));
+    expect(screen.getByText("KYC verified.")).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the dialog and its note, and reports the change, when sending it failed", async () => {
+    const user = userEvent.setup();
+    const answer = await verificationSeenEarly(user);
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    await answer.fail(new TypeError("Failed to fetch"));
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(screen.getByLabelText("Note for the record (optional)")).toHaveValue("seen");
+  });
+
+  it("reports someone else's change made right after the verification", async () => {
+    const user = userEvent.setup();
+    popup();
+    await show(allDocs());
+    const slow = later<ApiBookingDetail>();
+    const answer = later<ApiBookingDetail>();
+    getBooking.mockReturnValueOnce(slow.promise);
+    verifyBookingKyc.mockReturnValueOnce(answer.promise);
+    await user.click(previewButton("PAN Card"));
+    await user.click(verifyButton());
+    await user.click(confirm());
+    getBooking.mockResolvedValue(allDocs({ version: 8 }));
+    await slow.reply(allDocs({ version: 8 }));
+    await answer.reply(allDocs({ version: 7, kyc_status: "verified", can_verify_kyc: false }));
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(screen.getByText("v8")).toBeInTheDocument();
+    expect(verifyButton()).toBeEnabled();
+  });
+});
+
+describe("BookingDetailPage - the changed warning stays exactly as long as it should", () => {
+  const review = (o: Partial<ApiBookingDetail> = {}) =>
+    booking({ status: "pending_kyc_review", version: 3, documents: documents(TYPES), ...o });
+  const dismiss = () => screen.getByRole("button", { name: "Dismiss: this booking has changed" });
+  async function changeElsewhere(user: ReturnType<typeof userEvent.setup>, data: ApiBookingDetail) {
+    popup();
+    getBooking.mockResolvedValue(data);
+    await user.click(previewButton("PAN Card"));
+    await screen.findByText(`v${data.version}`);
+  }
+
+  it("isn't lost to a failed reload, nor to the one that works after it", async () => {
+    const user = userEvent.setup();
+    const closed = documents(TYPES).map((d) => (d.document_type === "applicant_photo" ? { ...d, preview_url: null } : d));
+    await show(allDocs({ documents: closed, can_verify_kyc: false }));
+    await changeElsewhere(user, allDocs({ version: 7, documents: closed, can_verify_kyc: false }));
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+    getBooking.mockRejectedValueOnce(new ApiError(500, "down"));
+    await user.click(screen.getByRole("button", { name: "Reload booking" }));
+    expect(await screen.findByText(/latest details of this booking could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+    getBooking.mockResolvedValue(allDocs({ version: 7 }));
+    await user.click(screen.getByRole("button", { name: "Reload booking" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Verify KYC" })).toBeEnabled());
+    expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it("can be dismissed, and comes back for the next change", async () => {
+    const user = userEvent.setup();
+    await show(allDocs());
+    await changeElsewhere(user, allDocs({ version: 7 }));
+    await user.click(dismiss());
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+    await changeElsewhere(user, allDocs({ version: 8 }));
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["a verified existing customer", allDocs({ kyc_status: "verified", can_verify_kyc: false })],
+    ["a rejected booking", booking({ status: "rejected", version: 6, documents: documents(TYPES) })],
+    ["a cancelled booking", booking({ status: "cancelled", version: 6, documents: documents(TYPES) })],
+    ["an existing customer on a backend that can't verify KYC", allDocs({ can_verify_kyc: undefined })],
+  ])("doesn't ask for a check before a decision nobody can make: %s", async (_, data) => {
+    const user = userEvent.setup();
+    await show(data);
+    await changeElsewhere(user, { ...data, version: 7 });
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+
+  it("asks for it once the change makes a decision possible again", async () => {
+    const user = userEvent.setup();
+    await show(allDocs({ kyc_status: "verified", can_verify_kyc: false }));
+    await changeElsewhere(user, allDocs({ version: 7, kyc_status: "pending", can_verify_kyc: true }));
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+  });
+
+  it("is settled by the decision it was raised during", async () => {
+    const user = userEvent.setup();
+    popup();
+    await show(review());
+    const slow = later<ApiBookingDetail>();
+    const answer = later<ApiBookingDetail>();
+    getBooking.mockReturnValueOnce(slow.promise);
+    approveBooking.mockReturnValueOnce(answer.promise);
+    await user.click(previewButton("PAN Card"));
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    await user.click(screen.getByRole("button", { name: "Confirm Approve" }));
+    const approved = review({ version: 4, status: "booked", kyc_status: "verified" });
+    await slow.reply(approved);
+    getBooking.mockResolvedValue(approved);
+    await answer.reply(approved);
+    expect(screen.getByText(/Booking approved/)).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+  });
+});
+
+describe("BookingDetailPage - decisions and uploads take turns", () => {
+  const review = (o: Partial<ApiBookingDetail> = {}) =>
+    booking({ status: "pending_kyc_review", version: 3, documents: documents(TYPES), ...o });
+
+  it.each([
+    ["Approve and Reject", review(), ["Approve", "Reject"]],
+    ["Cancel Plot Booked", booking({ can_upload_documents: true, documents: documents(TYPES) }), ["Cancel Plot Booked"]],
+    ["Verify KYC", allDocs(), ["Verify KYC"]],
+  ])("%s wait for a running upload", async (_, data, names) => {
+    const user = userEvent.setup();
+    const upload = later<ApiBookingDetail>();
+    uploadBookingDocument.mockReturnValue(upload.promise);
+    await show(data);
+    await chooseAndUpload(user, "PAN Card");
+    for (const name of names) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "Wait for the upload to finish");
+      await user.click(button);
+    }
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await upload.reply({ ...data, version: data.version + 1 });
+    for (const name of names) {
+      expect(screen.getByRole("button", { name })).toBeEnabled();
+      expect(screen.getByRole("button", { name })).not.toHaveAttribute("title");
+    }
+  });
+
+  it("is free again after an upload that failed", async () => {
+    const user = userEvent.setup();
+    await show(review());
+    uploadBookingDocument.mockRejectedValue(refuse(503, "document_storage_unavailable"));
+    await chooseAndUpload(user, "PAN Card");
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("then approves what the upload left on screen", async () => {
+    const user = userEvent.setup();
+    await show(review());
+    uploadBookingDocument.mockResolvedValue(review({ version: 4 }));
+    await chooseAndUpload(user, "PAN Card");
+    await screen.findByText(/PAN Card uploaded/);
+    approveBooking.mockResolvedValue(review({ version: 5, status: "booked" }));
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    await user.click(screen.getByRole("button", { name: "Confirm Approve" }));
+    await screen.findByText(/Booking approved/);
+    expect(approveBooking.mock.calls[0][2]).toMatchObject({ version: 4 });
+  });
+
+  it("doesn't upload behind an open dialog, or while a decision is being sent", async () => {
+    const user = userEvent.setup();
+    const answer = later<ApiBookingDetail>();
+    verifyBookingKyc.mockReturnValue(answer.promise);
+    await show(allDocs());
+    await user.upload(chooser("PAN Card"), image("kept.png"));
+    await user.click(screen.getByRole("button", { name: "Verify KYC" }));
+    for (const step of ["open", "sending"]) {
+      if (step === "sending") await user.click(screen.getByRole("button", { name: "Confirm Verified" }));
+      expect(uploadButton("PAN Card")).toBeDisabled();
+      expect(chooser("Applicant Photo")).toBeDisabled();
+      for (const b of chooseButtons()) expect(b).toBeDisabled();
+    }
+    await answer.fail(new TypeError("Failed to fetch"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(uploadButton("PAN Card")).toBeEnabled();
+    expect(screen.getByText("Selected: kept.png")).toBeInTheDocument();
+    expect(uploadBookingDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe("BookingDetailPage - a decision the server refuses", () => {
+  const review = (o: Partial<ApiBookingDetail> = {}) =>
+    booking({ status: "pending_kyc_review", version: 3, documents: documents(TYPES), ...o });
+  const PLOT = /its plot is no longer on hold for it in the inventory/;
+  async function approve(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    await user.click(screen.getByRole("button", { name: "Confirm Approve" }));
+  }
+
+  it.each([
+    ["inventory_confirm_failed", PLOT],
+    ["version_conflict", /already updated elsewhere/],
+    ["booking_not_reviewable", /already updated elsewhere/],
+  ])("explains %s, and shows the latest booking without blanking the page or dropping files", async (code, message) => {
+    const user = userEvent.setup();
+    await show(review());
+    await user.upload(chooser("PAN Card"), image("kept.png"));
+    const reload = later<ApiBookingDetail>();
+    approveBooking.mockRejectedValue(refuse(409, code));
+    getBooking.mockReturnValueOnce(reload.promise);
+    await approve(user);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(code)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading booking...")).not.toBeInTheDocument();
+    await reload.reply(review({ version: 5 }));
+    expect(screen.getByText("v5")).toBeInTheDocument();
+    expect(screen.getByText("Selected: kept.png")).toBeInTheDocument();
+    expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
+
+    approveBooking.mockResolvedValue(review({ version: 6, status: "booked" }));
+    await approve(user);
+    expect(await screen.findByText(/Booking approved/)).toBeInTheDocument();
+    expect(approveBooking.mock.calls[1][2]).toMatchObject({ version: 5 });
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+  });
+
+  it("keeps the reason when the latest booking can't be loaded", async () => {
+    const user = userEvent.setup();
+    await show(review());
+    approveBooking.mockRejectedValue(refuse(409, "inventory_confirm_failed"));
+    getBooking.mockRejectedValue(new ApiError(500, "down"));
+    await approve(user);
+    expect(await screen.findByText(PLOT)).toBeInTheDocument();
+    expect(await screen.findByText(/latest details of this booking could not be loaded/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["a bare code", refuse(400, "some_internal_code"), "Something went wrong. Please try again."],
+    ["a sentence", refuse(400, "bad_note", "The note can't contain links."), "The note can't contain links."],
+    ["no text at all", refuse(400, "", ""), "Something went wrong. Please try again."],
+  ])("never shows %s as the reason unless it can be read", async (_, error, text) => {
+    const user = userEvent.setup();
+    await show(review());
+    approveBooking.mockRejectedValue(error);
+    await approve(user);
+    expect(await within(screen.getByRole("dialog")).findByText(text)).toBeInTheDocument();
+    expect(screen.queryByText("some_internal_code")).not.toBeInTheDocument();
+  });
+
+  it("offers no receipt button that does nothing", async () => {
+    await show(booking());
+    expect(screen.queryByRole("button", { name: /receipt/i })).not.toBeInTheDocument();
   });
 });
 

@@ -18,6 +18,7 @@ import { bookingApplicant, distinctApplicants } from "../../lib/applicants";
 import { fetchPages } from "../../lib/pagination";
 import { PaymentPlanCard, PlanCardHeader } from "../bookings/PaymentPlanCard";
 import { planTitle } from "../bookings/planTitle";
+import { DemandLetterOnWebsite } from "./DemandLetterOnWebsite";
 import { OfflinePlotPlanCard, TERMS_STATUS_LABELS } from "./OfflinePlotPlanCard";
 
 interface PlotPlanRow {
@@ -104,14 +105,15 @@ async function listCustomerBookings(accessToken: string, customerId: string) {
 }
 
 /**
- * The customer's plots bought offline (loaded from the client's sheets). They have no website
- * booking; their plan, prices and demand letter come from GET /admin/customers/{id}. An older
- * backend without that endpoint (404) just means no offline plots.
+ * Every plot of the customer from GET /admin/customers/{id}: those bought offline (loaded from the
+ * client's sheets), with their plan, prices and demand letter, and the website bookings' records
+ * (for their demand letter's setting on the customer's website account). An older backend
+ * without that endpoint (404) just means no offline plots.
  */
-async function listOfflinePlots(accessToken: string, customerId: string): Promise<ApiCustomerPlot[]> {
+async function listPlots(accessToken: string, customerId: string): Promise<ApiCustomerPlot[]> {
   try {
     const detail = await getCustomerDetail(accessToken, customerId);
-    return detail.plots.filter((plot) => plot.record_type === "offline");
+    return detail.plots;
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return [];
     throw err;
@@ -149,29 +151,29 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
   // Bookings and offline plots load (and are retried) separately, so one failing never hides the other.
   const [bookingsReloadKey, setBookingsReloadKey] = useState(0);
   const [offlineReloadKey, setOfflineReloadKey] = useState(0);
-  const [offlinePlots, setOfflinePlots] = useState<ApiCustomerPlot[] | null>(null);
+  const [plots, setPlots] = useState<ApiCustomerPlot[] | null>(null);
   const [offlineError, setOfflineError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    listOfflinePlots(accessToken, customerId)
+    listPlots(accessToken, customerId)
       .then((plots) => {
         if (cancelled) return;
         setOfflineError(null);
-        setOfflinePlots(plots);
+        setPlots(plots);
       })
       .catch((err) => {
         if (cancelled) return;
         setOfflineError(errorMessage(err, "This customer's offline plots could not be loaded."));
-        setOfflinePlots((current) => current ?? []);
+        setPlots((current) => current ?? []);
       });
     return () => {
       cancelled = true;
     };
   }, [accessToken, customerId, offlineReloadKey]);
 
-  const replaceOfflinePlot = useCallback((saved: ApiCustomerPlot) => {
-    setOfflinePlots((plots) => plots?.map((p) => (p.document_id === saved.document_id ? saved : p)) ?? plots);
+  const replacePlot = useCallback((saved: ApiCustomerPlot) => {
+    setPlots((plots) => plots?.map((p) => (p.document_id === saved.document_id ? saved : p)) ?? plots);
   }, []);
 
   useEffect(() => {
@@ -223,9 +225,13 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
 
   const bookingsFailed = !!listError && !entries;
   // Wait for both halves (or a failure) so the page doesn't jump as the second one arrives.
-  if ((!entries && !bookingsFailed) || !offlinePlots) {
+  if ((!entries && !bookingsFailed) || !plots) {
     return <Card className="p-5 text-sm text-text-muted">Loading payment plans...</Card>;
   }
+  const offlinePlots = plots.filter((plot) => plot.record_type === "offline");
+  // A website booking's own record, for its demand letter's setting on the website.
+  const recordOf = (bookingId: string) =>
+    plots.find((plot) => plot.record_type === "website" && plot.booking_id === bookingId);
   // An offline plot with a booking is one plot: shown once, as its plot card (which links to
   // the booking), not again as a booking card.
   const offlineBookingIds = new Set(offlinePlots.map((p) => p.booking_id).filter(Boolean));
@@ -303,9 +309,10 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
               ) : null
             }
             onSaved={(saved) => {
-              replaceOfflinePlot(saved);
+              replacePlot(saved);
               refreshBooking();
             }}
+            onShownChanged={replacePlot}
             onPaymentAwaiting={refreshBooking}
           />
         );
@@ -323,12 +330,18 @@ export function CustomerPaymentPlans({ accessToken, customerId }: { accessToken:
       {bookings.map(({ item, detail, error, loading }) => {
         const plot = [item.project_name, item.unit_number && `Plot ${item.unit_number}`].filter(Boolean).join(" · ");
         const title = `Payment Plan${plot ? ` — ${plot}` : ""}`;
+        const record = recordOf(item.id);
         const action = (
-          <div className="flex items-center gap-3">
-            <StatusBadge status={item.status.toUpperCase()} />
-            <Link to={`/admin/bookings/${item.id}`} className="text-xs font-semibold text-gold-dark hover:underline">
-              Open booking
-            </Link>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-3">
+              <StatusBadge status={item.status.toUpperCase()} />
+              <Link to={`/admin/bookings/${item.id}`} className="text-xs font-semibold text-gold-dark hover:underline">
+                Open booking
+              </Link>
+            </div>
+            {record && (
+              <DemandLetterOnWebsite accessToken={accessToken} customerId={customerId} plot={record} onSaved={replacePlot} />
+            )}
           </div>
         );
         const simpleCard = (body: ReactNode) => (

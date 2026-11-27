@@ -27,6 +27,12 @@ import { customersCsv } from "../csv/sections";
 import { validateEmail, validateFullName } from "../../lib/validation";
 
 const PAGE_SIZE = 20;
+/** The longest search the server accepts. */
+const SEARCH_MAX = 200;
+
+const ADD_ERRORS: Record<string, string> = {
+  email_already_exists: "A customer with this email already exists.",
+};
 
 interface FieldErrors {
   name?: string | null;
@@ -75,11 +81,13 @@ export function CustomersListPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(searchInput);
+      const next = searchInput.trim();
+      if (next === search) return;
+      setSearch(next);
       setPage(1);
     }, 350);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -90,12 +98,19 @@ export function CustomersListPage() {
     listCustomers(accessToken, { ...filters, page, page_size: PAGE_SIZE })
       .then((res) => {
         if (cancelled) return;
+        const pages = Math.max(1, res.pagination.total_pages);
         setItems(res.items);
         setTotalItems(res.pagination.total_items);
-        setTotalPages(Math.max(1, res.pagination.total_pages));
+        setTotalPages(pages);
+        // The list got shorter since this page was opened: show its last page, not an empty one.
+        if (page > pages) setPage(pages);
       })
       .catch((err) => {
         if (cancelled) return;
+        // Never leave an earlier search's customers under this one.
+        setItems([]);
+        setTotalItems(0);
+        setTotalPages(1);
         setLoadError(err instanceof ApiError ? err.message : "Failed to load customers.");
       })
       .finally(() => {
@@ -117,7 +132,7 @@ export function CustomersListPage() {
 
   async function handleAddCustomer(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken) return;
+    if (!accessToken || adding) return;
 
     const errors: FieldErrors = {
       name: validateFullName(name),
@@ -142,11 +157,23 @@ export function CustomersListPage() {
       setSearchInput("");
       setSource("ALL");
       setStatus("ALL");
+      // The filters may have been clear already: load the list again either way.
+      setReloadKey((k) => k + 1);
     } catch (err) {
-      setAddError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setAddError(
+        err instanceof ApiError
+          ? (err.code && ADD_ERRORS[err.code]) || err.message || "Something went wrong. Please try again."
+          : "Something went wrong. Please try again."
+      );
     } finally {
       setAdding(false);
     }
+  }
+
+  function closeAdd() {
+    if (adding) return;
+    setAddOpen(false);
+    resetForm();
   }
 
   function openCustomer(customer: ApiCustomer) {
@@ -173,8 +200,10 @@ export function CustomersListPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput
-          placeholder="Search by name, email or phone"
+          placeholder="Search by name, email, phone or plot number"
+          aria-label="Search customers by name, email, phone or plot number"
           className="flex-1 min-w-[220px]"
+          maxLength={SEARCH_MAX}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -199,17 +228,19 @@ export function CustomersListPage() {
             setPage(1);
           }}
         >
+          {/* The only two the server has: it refuses any other. */}
           <option value="ALL">All statuses</option>
-          <option value="LEAD">Lead</option>
           <option value="ACTIVE">Active</option>
           <option value="BOOKED">Booked</option>
-          <option value="INACTIVE">Inactive</option>
         </Select>
       </div>
 
       {loadError && (
         <div className="mb-4 rounded-xl border border-danger/30 bg-danger-bg p-3 text-sm text-danger">
-          {loadError}
+          <p className="mb-2">{loadError}</p>
+          <Button variant="outline" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+            Try again
+          </Button>
         </div>
       )}
 
@@ -256,7 +287,7 @@ export function CustomersListPage() {
                   </Td>
                 </Tr>
               ))}
-              {items.length === 0 && (
+              {items.length === 0 && !loadError && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-sm text-text-muted">
                     No customers match your filters.
@@ -272,20 +303,11 @@ export function CustomersListPage() {
 
       <Modal
         open={addOpen}
-        onClose={() => {
-          setAddOpen(false);
-          resetForm();
-        }}
+        onClose={closeAdd}
         title="Add Customer"
         footer={
           <>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAddOpen(false);
-                resetForm();
-              }}
-            >
+            <Button variant="outline" disabled={adding} onClick={closeAdd}>
               Cancel
             </Button>
             <Button onClick={handleAddCustomer} disabled={adding}>
@@ -341,7 +363,7 @@ export function CustomersListPage() {
               Source: <span className="font-semibold text-text">Website</span>
             </span>
             <span>
-              Status: <span className="font-semibold text-text">Lead</span>
+              Status: <span className="font-semibold text-text">Active</span>
             </span>
           </div>
         </form>

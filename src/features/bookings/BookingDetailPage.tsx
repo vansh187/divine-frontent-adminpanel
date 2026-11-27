@@ -230,8 +230,10 @@ function BookingDetail({ id }: { id: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
-  /** What is on screen changed without the admin doing it, or may be out of date. */
-  const [warning, setWarning] = useState<string | null>(null);
+  /** The booking changed without the admin doing it: stays until they open a decision, or dismiss it. */
+  const [changed, setChanged] = useState(false);
+  /** The last reload failed: what is on screen may be out of date. */
+  const [reloadFailed, setReloadFailed] = useState(false);
 
   const [downloadingDocument, setDownloadingDocument] = useState<BookingDocumentKind | null>(null);
   const [documentError, setDocumentError] = useState<string | null>(null);
@@ -256,6 +258,10 @@ function BookingDetail({ id }: { id: string }) {
   // The version a decision is made on: the one on screen when its dialog opened.
   const decisionVersion = useRef(0);
   const submittingDecision = useRef(false);
+  // The version an upload or decision of ours was sent on, while its reply is awaited: the next
+  // version may well be that change, so seeing it first is held back rather than reported.
+  const sentOn = useRef<number | null>(null);
+  const heldBack = useRef(false);
   // The version a verification was saved as although the booking couldn't be read back: until that
   // version shows, what is on screen is out of date and verifying must not be offered again.
   const savedVersion = useRef(0);
@@ -290,17 +296,38 @@ function BookingDetail({ id }: { id: string }) {
     setBooking(latest);
     setLoading(false);
     setLoadError(null);
-    // These are the latest details; a change the admin must look into stays until they act on it.
-    setWarning((current) => (current === RELOAD_FAILED_WARNING ? null : current));
+    setReloadFailed(false);
   }, []);
 
   /** The booking is no longer the one the admin has been looking at: say so, and drop a decision about it. */
   const warnChanged = useCallback(() => {
-    setWarning(CHANGED_WARNING);
+    setChanged(true);
     if (submittingDecision.current) return; // Already sent: the server checks its version.
     setModal(null);
     setNote("");
   }, []);
+
+  /** The booking moved on to `version`: someone else's doing, unless it is the change we just sent. */
+  const noteChange = useCallback(
+    (version: number) => {
+      if (sentOn.current !== null && version === sentOn.current + 1) heldBack.current = true;
+      else warnChanged();
+    },
+    [warnChanged]
+  );
+
+  function startWrite(version: number) {
+    sentOn.current = version;
+    heldBack.current = false;
+  }
+
+  /** `explained`: the change was saved, so the next version was ours, or its refusal says what happened. */
+  function endWrite(explained: boolean) {
+    const unexplained = heldBack.current && !explained;
+    sentOn.current = null;
+    heldBack.current = false;
+    if (unexplained && mounted.current) warnChanged();
+  }
 
   /** Shows a load asked for at `at`, unless something newer is on screen. `explained`: its caller says what changed. */
   const showLoaded = useCallback(
@@ -309,9 +336,10 @@ function BookingDetail({ id }: { id: string }) {
       if (!mounted.current || at < shownAt.current || (before && latest.version < before.version)) return;
       display(latest, at);
       // The version our own saved verification made is no news.
-      if (before && latest.version !== before.version && latest.version !== savedVersion.current && !explained) warnChanged();
+      if (before && latest.version !== before.version && latest.version !== savedVersion.current && !explained)
+        noteChange(latest.version);
     },
-    [display, warnChanged]
+    [display, noteChange]
   );
 
   /** Reloads in place: the page, its scroll position and the chosen files stay. Throws if it can't. */
@@ -336,12 +364,12 @@ function BookingDetail({ id }: { id: string }) {
     const expected = Math.max(before.version + bumps, current?.version ?? 0);
     if (!current || result.version >= current.version) {
       display(result, ++clock.current);
-      if (result.version > expected) warnChanged();
+      if (result.version > expected) noteChange(result.version);
     }
     // Two changes crossed: neither reply is sure to hold both.
     if (overlapped && accessToken)
       refreshInPlace(accessToken).catch(() => {
-        if (mounted.current) setWarning(RELOAD_FAILED_WARNING);
+        if (mounted.current) setReloadFailed(true);
       });
   }
 
@@ -384,7 +412,7 @@ function BookingDetail({ id }: { id: string }) {
     setNote("");
     setActionError(null);
     setActionNotice(null);
-    setWarning(null);
+    setChanged(false);
     setModal(kind);
   }
 
@@ -422,7 +450,7 @@ function BookingDetail({ id }: { id: string }) {
   /** A saved verification, going by the booking read back: its KYC status is always the response's. */
   function showVerified(latest: ApiBookingDetail) {
     if (latest.kyc_status === "verified") setActionNotice(DECISIONS.verifyKyc.done);
-    else setWarning(CHANGED_WARNING); // A document was replaced right after.
+    else setChanged(true); // A document was replaced right after.
   }
 
   /** KYC was verified but the server couldn't return the booking: reads it, and never sends the decision again. */
@@ -449,7 +477,7 @@ function BookingDetail({ id }: { id: string }) {
       if (!mounted.current) return;
       if (outOfDate && latest.version >= savedVersion.current) showVerified(latest);
     } catch {
-      if (mounted.current && !outOfDate) setWarning(RELOAD_FAILED_WARNING);
+      if (mounted.current && !outOfDate) setReloadFailed(true);
     } finally {
       setReloading(false);
     }
@@ -458,6 +486,8 @@ function BookingDetail({ id }: { id: string }) {
   async function submitDecision(kind: DecisionKind) {
     if (!accessToken || !booking || submittingDecision.current) return;
     submittingDecision.current = true;
+    let explained = false;
+    startWrite(decisionVersion.current);
     setSubmitting(true);
     setDocumentError(null);
     setActionError(null);
@@ -467,6 +497,7 @@ function BookingDetail({ id }: { id: string }) {
     try {
       const result = await DECISIONS[kind].action(accessToken, booking.id, payload);
       if (!mounted.current) return;
+      explained = true;
       showSaved(result, booking, 1);
       setModal(null);
       setNote("");
@@ -475,8 +506,10 @@ function BookingDetail({ id }: { id: string }) {
     } catch (err) {
       if (!mounted.current) return;
       if (kind === "verifyKyc" && err instanceof ApiError && err.status === 409) {
+        explained = true;
         await explainRefusedVerification(accessToken, err);
       } else if (kind === "verifyKyc" && err instanceof ApiError && err.code === "kyc_verified_refresh_failed") {
+        explained = true;
         await readBackVerified(accessToken);
       } else if (kind === "verifyKyc" && err instanceof ApiError && err.code === "kyc_documents_unavailable") {
         // Nothing changed: the dialog stays open, so Confirm is the retry.
@@ -487,23 +520,34 @@ function BookingDetail({ id }: { id: string }) {
         err instanceof ApiError &&
         (err.code === "version_conflict" ||
           err.code === "booking_not_reviewable" ||
-          err.code === "booking_not_cancellable")
+          err.code === "booking_not_cancellable" ||
+          err.code === "inventory_confirm_failed")
       ) {
-        setActionError("This booking was already updated elsewhere — showing the latest state.");
+        explained = true;
+        setActionError(
+          err.code === "inventory_confirm_failed"
+            ? "The booking was not approved: its plot is no longer on hold for it in the inventory. Check the plot's status there before trying again."
+            : "This booking was already updated elsewhere — showing the latest state."
+        );
         setModal(null);
         setNote("");
-        fetchBooking(true);
+        // In place: the page, its scroll position and any chosen files stay.
+        await refreshInPlace(accessToken, true).catch(() => {
+          if (mounted.current) setReloadFailed(true);
+        });
       } else if (err instanceof ApiError && err.code === "offline_booking_not_cancellable") {
         setActionError("This plot was sold offline, so it can't be cancelled or refunded here.");
       } else if (err instanceof ApiError && err.status === 404) {
         setActionError("This booking could not be found. It may have been removed.");
         setModal(null);
-      } else if (err instanceof ApiError && err.status < 500) {
+      } else if (err instanceof ApiError && err.status < 500 && err.message !== err.code) {
+        // A bare code ("some_error") is for the server's logs, not the admin.
         setActionError(err.message || "Something went wrong. Please try again.");
       } else {
         setActionError("Something went wrong. Please try again.");
       }
     } finally {
+      endWrite(explained);
       submittingDecision.current = false;
       setSubmitting(false);
     }
@@ -556,7 +600,7 @@ function BookingDetail({ id }: { id: string }) {
 
   async function handleKycUpload(documentType: BookingDocumentType) {
     const file = selectedKycFiles[documentType];
-    if (!accessToken || !booking || !file || uploadingKycType !== null) return;
+    if (!accessToken || !booking || !file || uploadingKycType !== null || modal !== null) return;
     if (validateKycFile(file, documentType) !== null) return;
 
     const showError = (message: string) => setKycUploadErrors((current) => ({ ...current, [documentType]: message }));
@@ -565,6 +609,8 @@ function BookingDetail({ id }: { id: string }) {
     const previous = uploadKeys.current[documentType];
     const idempotencyKey = previous?.version === version ? previous.key : createIdempotencyKey();
     uploadKeys.current[documentType] = { key: idempotencyKey, version };
+    let explained = false;
+    startWrite(version);
     setUploadingKycType(documentType);
     showError("");
     setActionError(null);
@@ -581,11 +627,14 @@ function BookingDetail({ id }: { id: string }) {
         idempotencyKey
       );
       if (!mounted.current) return;
+      explained = true;
       showSaved(updated, booking, 1);
       // Not the reply when a newer booking is already on screen: its KYC status would be an old one.
       finishKycUpload(documentType, shown.current ?? updated, wasVerified);
     } catch (err) {
       if (!mounted.current) return;
+      // Saved, or told why it wasn't: either way the next version needs no other explanation.
+      explained = err instanceof ApiError && (err.code === "document_saved_refresh_failed" || err.code === "version_conflict");
       if (err instanceof ApiError && err.code === "document_saved_refresh_failed") {
         const reference = err.requestId ? ` (Request ID: ${err.requestId})` : "";
         showError(`The document was saved. Refreshing booking details…${reference}`);
@@ -620,6 +669,7 @@ function BookingDetail({ id }: { id: string }) {
         }
       }
     } finally {
+      endWrite(explained);
       setUploadingKycType(null);
     }
   }
@@ -697,6 +747,11 @@ function BookingDetail({ id }: { id: string }) {
     : booking?.is_offline && booking.status === "booked"
       ? existingCustomerText
       : "This booking has already been decided and can no longer be reviewed.";
+  const canCancelPlot = booking?.status === "booked" && !booking.is_offline;
+  const decisionAvailable = isReviewable || canCancelPlot || (verifiesKyc && !kycVerified);
+  // A decision is made on the version on screen, and an upload is about to change it.
+  const uploading = uploadingKycType !== null;
+  const waitForUpload = uploading ? "Wait for the upload to finish" : undefined;
   const accountHolder = booking ? otherAccountHolder(booking) : null;
   // Same truthiness check for label and value so an empty string never yields a blank reference.
   const paymentReference = booking?.utr_number
@@ -743,9 +798,20 @@ function BookingDetail({ id }: { id: string }) {
               </Button>
             </div>
           )}
-          {warning && (
+          {changed && decisionAvailable && (
+            <div
+              role="status"
+              className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/30 bg-warning-bg p-3 text-sm text-warning"
+            >
+              <span className="min-w-0 flex-1">{CHANGED_WARNING}</span>
+              <Button variant="outline" size="sm" aria-label="Dismiss: this booking has changed" onClick={() => setChanged(false)}>
+                Dismiss
+              </Button>
+            </div>
+          )}
+          {reloadFailed && (
             <div role="status" className="mb-4 rounded-xl border border-warning/30 bg-warning-bg p-3 text-sm text-warning">
-              {warning}
+              {RELOAD_FAILED_WARNING}
             </div>
           )}
           {actionNotice && !actionError && (
@@ -771,8 +837,14 @@ function BookingDetail({ id }: { id: string }) {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              {booking.status === "booked" && !booking.is_offline && (
-                <Button variant="secondary" size="sm" onClick={() => openModal("cancelPlot")}>
+              {canCancelPlot && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={uploading}
+                  title={waitForUpload}
+                  onClick={() => openModal("cancelPlot")}
+                >
                   Cancel Plot Booked
                 </Button>
               )}
@@ -781,13 +853,13 @@ function BookingDetail({ id }: { id: string }) {
                   <Button
                     size="sm"
                     // A document being uploaded is one nobody has checked yet.
-                    disabled={!booking.can_verify_kyc || uploadingKycType !== null || outOfDate}
+                    disabled={!booking.can_verify_kyc || uploading || outOfDate}
                     title={
                       !allDocumentsUploaded
                         ? "Upload all 5 KYC documents first"
                         : cannotOpenDocuments
                           ? "Some documents can't be opened right now"
-                          : undefined
+                          : waitForUpload
                     }
                     onClick={() => openModal("verifyKyc")}
                   >
@@ -796,10 +868,16 @@ function BookingDetail({ id }: { id: string }) {
                 )
               ) : (
                 <>
-                  <Button variant="danger" size="sm" disabled={!isReviewable} onClick={() => openModal("reject")}>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={!isReviewable || uploading}
+                    title={waitForUpload}
+                    onClick={() => openModal("reject")}
+                  >
                     Reject
                   </Button>
-                  <Button size="sm" disabled={!canApprove} onClick={() => openModal("approve")}>
+                  <Button size="sm" disabled={!canApprove || uploading} title={waitForUpload} onClick={() => openModal("approve")}>
                     Approve
                   </Button>
                 </>
@@ -916,7 +994,7 @@ function BookingDetail({ id }: { id: string }) {
                       const fileProblem = canUpload && selectedFile ? validateKycFile(selectedFile, documentType) : null;
                       const errors = [fileProblem, kycUploadErrors[documentType]].filter(Boolean);
                       const label = doc?.label ?? KYC_DOCUMENT_LABELS[documentType];
-                      const uploadsBlocked = uploadingKycType !== null || uploadRetrySeconds > 0;
+                      const uploadsBlocked = uploading || uploadRetrySeconds > 0 || modal !== null;
                       const chooseText = doc?.uploaded ? "Choose replacement" : "Choose file";
                       const uploadText = `Upload ${doc?.uploaded ? "replacement" : "document"}`;
                       return (
@@ -973,7 +1051,7 @@ function BookingDetail({ id }: { id: string }) {
                             tabIndex={-1}
                             hidden={!canUpload}
                             aria-label={`Choose ${label} file`}
-                            disabled={!canUpload || uploadingKycType !== null}
+                            disabled={!canUpload || uploading || modal !== null}
                             onChange={(event) => {
                               const file = event.currentTarget.files?.[0] ?? null;
                               setSelectedKycFiles((current) => ({ ...current, [documentType]: file }));
@@ -1065,16 +1143,6 @@ function BookingDetail({ id }: { id: string }) {
                   )}
                 </ol>
               </Card>
-
-              {booking.status === "booked" && !booking.is_offline && (
-                <Card className="p-5">
-                  <h3 className="mb-2 text-sm font-bold text-text">Receipt</h3>
-                  <p className="mb-3 text-xs text-text-muted">Final receipt is available for download.</p>
-                  <Button variant="outline" size="sm" className="w-full">
-                    Download Receipt PDF
-                  </Button>
-                </Card>
-              )}
 
               <Card className="p-5">
                 <h3 className="mb-1 text-sm font-bold text-text">Booking Documents</h3>

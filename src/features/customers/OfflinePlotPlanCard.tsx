@@ -17,6 +17,7 @@ import { saveBlob } from "../../lib/download";
 import { formatCurrency, formatDate, localDateISO } from "../../lib/format";
 import { PlanCardHeader } from "../bookings/PaymentPlanCard";
 import { planTitle } from "../bookings/planTitle";
+import { DemandLetterOnWebsite } from "./DemandLetterOnWebsite";
 import { PlotPlanPicker } from "./PlotPlanPicker";
 
 /** Backend error codes for a plot's terms, worded for the admin. */
@@ -99,6 +100,7 @@ export function OfflinePlotPlanCard({
   pendingPayments = [],
   pendingUnknown = null,
   onSaved,
+  onShownChanged = onSaved,
   onPaymentAwaiting,
 }: {
   accessToken: string;
@@ -109,6 +111,8 @@ export function OfflinePlotPlanCard({
   /** Shown in their place when the plot's booking couldn't be checked for them. */
   pendingUnknown?: ReactNode;
   onSaved: (plot: ApiCustomerPlot) => void;
+  /** Its demand letter was shown on, or hidden from, the customer's website account. */
+  onShownChanged?: (plot: ApiCustomerPlot) => void;
   /** The server refused a change because a submitted payment is waiting. */
   onPaymentAwaiting?: () => void;
 }) {
@@ -224,18 +228,21 @@ export function OfflinePlotPlanCard({
   }
 
   const action = (
-    <div className="flex items-center gap-2">
-      {plot.booking_id && (
-        <Link to={`/admin/bookings/${encodeURIComponent(plot.booking_id)}`} className="text-xs font-semibold text-gold-dark hover:underline">
-          Open booking
-        </Link>
-      )}
-      <StatusBadge status="OFFLINE" label="Offline buyer" tone="info" />
-      <StatusBadge
-        status={plot.terms_status}
-        label={TERMS_STATUS_LABELS[plot.terms_status]}
-        tone={plot.terms_status === "complete" ? "success" : "warning"}
-      />
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex items-center gap-2">
+        {plot.booking_id && (
+          <Link to={`/admin/bookings/${encodeURIComponent(plot.booking_id)}`} className="text-xs font-semibold text-gold-dark hover:underline">
+            Open booking
+          </Link>
+        )}
+        <StatusBadge status="OFFLINE" label="Offline buyer" tone="info" />
+        <StatusBadge
+          status={plot.terms_status}
+          label={TERMS_STATUS_LABELS[plot.terms_status]}
+          tone={plot.terms_status === "complete" ? "success" : "warning"}
+        />
+      </div>
+      <DemandLetterOnWebsite accessToken={accessToken} customerId={customerId} plot={plot} onSaved={onShownChanged} />
     </div>
   );
 
